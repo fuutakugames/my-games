@@ -1,0 +1,3111 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>3Dぶっとび！くるま大ジャンプ＆だいクラッシュ</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@700;800;900&display=swap');
+    * {
+      box-sizing: border-box;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-touch-callout: none;
+    }
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      touch-action: none;
+      font-family: 'M PLUS Rounded 1c', 'Hiragino Maru Gothic ProN', sans-serif;
+      background: #090d16;
+    }
+    #canvas-container {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 1;
+      cursor: grab;
+    }
+    #canvas-container:active {
+      cursor: grabbing;
+    }
+    .ui-layer {
+      position: fixed;
+      inset: 0;
+      z-index: 10;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    .interactive {
+      pointer-events: auto;
+    }
+    .toy-btn {
+      transition: transform 0.1s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.1s ease;
+    }
+    .toy-btn:active {
+      transform: translateY(3px) scale(0.96);
+    }
+    @keyframes pulse-big {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.05); }
+    }
+    .animate-pulse-big {
+      animation: pulse-big 1.2s infinite ease-in-out;
+    }
+    @keyframes pop-in {
+      0% { transform: scale(0.4); opacity: 0; }
+      80% { transform: scale(1.06); opacity: 1; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+    .animate-pop {
+      animation: pop-in 0.32s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+    }
+    @keyframes float-up-fade {
+      0% { transform: translate(-50%, 0) scale(0.6); opacity: 0; }
+      20% { transform: translate(-50%, -14px) scale(1.12); opacity: 1; }
+      80% { transform: translate(-50%, -44px) scale(1); opacity: 1; }
+      100% { transform: translate(-50%, -68px) scale(0.85); opacity: 0; }
+    }
+    .comic-popup {
+      position: fixed;
+      pointer-events: none;
+      z-index: 25;
+      animation: float-up-fade 1.15s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+      text-shadow: 0 3px 0 #000, 0 -2px 0 #000, 3px 0 0 #000, -3px 0 0 #000;
+    }
+    .car-scroll::-webkit-scrollbar {
+      height: 6px;
+      width: 6px;
+    }
+    .car-scroll::-webkit-scrollbar-thumb {
+      background: rgba(255,255,255,0.4);
+      border-radius: 9999px;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 3D WebGL Canvas Container -->
+  <div id="canvas-container"></div>
+
+  <!-- Flash / Impact Overlay -->
+  <div id="impact-flash" class="fixed inset-0 pointer-events-none z-20 opacity-0 transition-opacity duration-150 bg-white"></div>
+
+  <!-- Comic Floating Text Layer -->
+  <div id="comic-popup-layer" class="fixed inset-0 pointer-events-none z-25 overflow-hidden"></div>
+
+  <!-- Main UI Layer -->
+  <div class="ui-layer p-2 sm:p-3">
+
+    <!-- TOP HUD BAR -->
+    <div class="flex flex-wrap items-center justify-between gap-1.5 w-full">
+      <!-- Selected Car, Distance & High Score Pill -->
+      <div class="interactive flex items-center gap-2 bg-slate-950/90 backdrop-blur-md border-2 border-yellow-400/60 rounded-2xl px-3 py-1 text-white shadow-xl">
+        <span id="hud-car-icon" class="text-2xl sm:text-3xl">🟢</span>
+        <div class="leading-tight">
+          <div class="flex items-center gap-2">
+            <span id="hud-car-name" class="font-black text-xs sm:text-base text-yellow-300">みどりのランボルギーニ</span>
+            <span id="hud-highscore" class="text-[10px] sm:text-xs bg-amber-500/20 border border-amber-400/50 text-amber-200 px-2 py-0.5 rounded-full font-black">🏆 ハイスコア: 0</span>
+          </div>
+          <div id="hud-course-label" class="text-[11px] sm:text-xs text-sky-300 font-bold">🎯 まと：450m（ふつう）</div>
+        </div>
+      </div>
+
+      <!-- CAMERA ANGLE & ZOOM CONTROLLER BAR -->
+      <div class="interactive flex items-center gap-1 bg-slate-950/90 backdrop-blur-md border-2 border-sky-400/70 rounded-2xl px-2 py-1 text-white shadow-xl">
+        <span class="text-xs font-black text-sky-300 hidden md:inline mr-1">🎥 みるかくど：</span>
+        <button id="cam-preset-back" type="button" class="cam-preset-btn toy-btn bg-sky-500 text-slate-950 font-black px-2 py-1 rounded-xl text-xs border border-white">
+          うしろ
+        </button>
+        <button id="cam-preset-diag" type="button" class="cam-preset-btn toy-btn bg-slate-800 hover:bg-slate-700 text-white font-black px-2 py-1 rounded-xl text-xs border border-white/20">
+          ななめ
+        </button>
+        <button id="cam-preset-side" type="button" class="cam-preset-btn toy-btn bg-slate-800 hover:bg-slate-700 text-white font-black px-2 py-1 rounded-xl text-xs border border-white/20">
+          まよこ
+        </button>
+        <button id="cam-preset-front" type="button" class="cam-preset-btn toy-btn bg-slate-800 hover:bg-slate-700 text-white font-black px-2 py-1 rounded-xl text-xs border border-white/20">
+          まえ
+        </button>
+        <button id="cam-preset-closeup" type="button" class="cam-preset-btn toy-btn bg-amber-500 text-slate-950 font-black px-2 py-1 rounded-xl text-xs border border-white">
+          🔍ドアップ
+        </button>
+        <button id="cam-zoom-out" type="button" title="もっと遠くから見る" class="toy-btn bg-indigo-600 hover:bg-indigo-500 px-2 py-1 rounded-xl text-xs font-black border border-white/30">
+          🔭ひき
+        </button>
+        <div class="h-4 w-[1px] bg-white/20 mx-0.5"></div>
+        <button id="cam-rot-left" type="button" title="左へまわる" class="toy-btn bg-slate-700 hover:bg-slate-600 px-2 py-1 rounded-lg text-xs font-black">◀</button>
+        <button id="cam-rot-right" type="button" title="右へまわる" class="toy-btn bg-slate-700 hover:bg-slate-600 px-2 py-1 rounded-lg text-xs font-black">▶</button>
+        <button id="cam-rot-up" type="button" title="上から見る" class="toy-btn bg-slate-700 hover:bg-slate-600 px-1.5 py-1 rounded-lg text-xs font-black">▲</button>
+        <button id="cam-rot-down" type="button" title="下から見る" class="toy-btn bg-slate-700 hover:bg-slate-600 px-1.5 py-1 rounded-lg text-xs font-black">▼</button>
+      </div>
+
+      <!-- Right Utility Buttons -->
+      <div class="interactive flex items-center gap-1.5">
+        <button id="btn-slowmo-toggle" type="button" class="toy-btn bg-purple-700 hover:bg-purple-600 border-2 border-purple-300 text-white font-black px-2.5 py-1.5 rounded-2xl text-xs sm:text-sm shadow-lg">
+          🐢 スロー: じどう
+        </button>
+        <button id="btn-instant-crash" type="button" class="toy-btn bg-gradient-to-b from-rose-500 to-red-700 border-2 border-yellow-300 text-white font-black px-2.5 py-1.5 rounded-2xl text-xs sm:text-sm shadow-lg flex items-center gap-1">
+          <span>💥</span><span class="hidden sm:inline">わざと こわす</span>
+        </button>
+        <button id="btn-sound-toggle" type="button" class="toy-btn bg-slate-800/90 hover:bg-slate-700 border-2 border-white/40 text-white font-black px-2.5 py-1.5 rounded-2xl text-xs sm:text-sm shadow-lg">
+          🔊 おと ON
+        </button>
+        <button id="btn-pause" type="button" class="toy-btn bg-amber-500 hover:bg-amber-400 border-2 border-white text-slate-950 font-black px-2.5 py-1.5 rounded-2xl text-xs sm:text-sm shadow-lg">
+          ⏸️ やすむ
+        </button>
+      </div>
+    </div>
+
+    <!-- Crash Camera Badge & Phase 3 Crash Target Focus Switcher -->
+    <div class="flex flex-wrap items-center justify-center gap-2 pointer-events-none mt-1">
+      <div id="crash-mode-badge" class="hidden bg-rose-600/95 border-4 border-yellow-300 text-white px-5 py-1 rounded-full font-black text-xs sm:text-base shadow-xl animate-bounce">
+        💥 3Dだいクラッシュ カメラ！
+      </div>
+      <div id="crash-focus-bar" class="hidden interactive flex items-center gap-1 bg-slate-950/90 border-2 border-amber-300 rounded-full px-3 py-1 text-white text-xs shadow-xl">
+        <span class="font-black text-amber-300">🔍 おいかける：</span>
+        <button type="button" data-focus="chassis" class="focus-btn toy-btn bg-amber-400 text-slate-950 font-black px-2 py-0.5 rounded-full">🚗 くるま本体</button>
+        <button type="button" data-focus="wheel" class="focus-btn toy-btn bg-slate-800 text-white font-black px-2 py-0.5 rounded-full">🛞 ころがるタイヤ</button>
+        <button type="button" data-focus="fan" class="focus-btn toy-btn bg-slate-800 text-white font-black px-2 py-0.5 rounded-full">🌀 まわるファン</button>
+      </div>
+    </div>
+
+    <!-- CENTER OVERLAYS (Title / Pause / Result / Floating Callouts) -->
+    <div class="flex-1 flex items-center justify-center relative my-1 overflow-hidden">
+
+      <!-- Floating Big Status Message -->
+      <div id="floating-banner" class="hidden pointer-events-none fixed top-16 left-1/2 -translate-x-1/2 z-30 text-center">
+        <div id="floating-banner-text" class="px-5 py-1 rounded-full font-black text-sm sm:text-xl text-white bg-slate-950/90 border-2 border-yellow-300 shadow-lg whitespace-nowrap">
+          ナイスジャンプ！✨
+        </div>
+      </div>
+
+      <!-- 1. TITLE & VEHICLE SELECT SCREEN (15 Vehicles!) -->
+      <div id="screen-title" class="interactive w-full max-w-4xl self-end bg-slate-950/90 backdrop-blur-md border-4 border-sky-400 rounded-3xl p-3 sm:p-4 shadow-2xl text-white flex flex-col max-h-[75vh] overflow-y-auto car-scroll">
+        <div class="flex flex-col sm:flex-row items-center justify-between gap-1 mb-2">
+          <div>
+            <h1 class="text-lg sm:text-2xl font-black tracking-tight text-white drop-shadow flex items-center gap-2">
+              <span>🚗 3Dぶっとび！くるま大ジャンプ＆だいクラッシュ 💥</span>
+            </h1>
+            <p class="text-[11px] sm:text-xs text-sky-200 font-bold">
+              ぜんぶで 15しゅるいの くるま！ まとを はずすと ゴロゴロ大回転して パーツが 次々に ぶっとぶよ！
+            </p>
+          </div>
+          <span id="selected-car-spec" class="text-xs font-bold bg-sky-950 border border-sky-400/60 px-3 py-1 rounded-full text-yellow-300 whitespace-nowrap">
+            シザードア＆リアV12黄金ツインファン超回転！
+          </span>
+        </div>
+
+        <!-- 15 Vehicles Selection Grid -->
+        <div class="mb-2">
+          <div id="car-grid" class="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
+            <!-- Populated by JS -->
+          </div>
+        </div>
+
+        <!-- Target Distance & Start Controls -->
+        <div class="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center bg-slate-900 rounded-2xl p-2 border border-white/15">
+          <div class="sm:col-span-6 flex flex-col gap-1">
+            <span class="text-[11px] font-black text-sky-200">🎯 まとの とおさ（コースを えらぶ）</span>
+            <div class="grid grid-cols-3 gap-1.5">
+              <button type="button" data-dist="320" class="dist-btn toy-btn py-1.5 px-2 rounded-xl font-black text-xs border-2 border-white/30 bg-emerald-600 text-white">
+                🟢 ちかい<br><span class="text-[10px] opacity-90">320m</span>
+              </button>
+              <button type="button" data-dist="450" class="dist-btn toy-btn py-1.5 px-2 rounded-xl font-black text-xs border-4 border-yellow-300 bg-amber-500 text-slate-950 shadow-md">
+                🟡 ふつう<br><span class="text-[10px] opacity-90">450m</span>
+              </button>
+              <button type="button" data-dist="580" class="dist-btn toy-btn py-1.5 px-2 rounded-xl font-black text-xs border-2 border-white/30 bg-rose-600 text-white">
+                🔴 とおい<br><span class="text-[10px] opacity-90">580m</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="sm:col-span-6 flex gap-2">
+            <button id="btn-start-game" type="button" class="toy-btn animate-pulse-big flex-1 bg-gradient-to-b from-orange-400 via-orange-500 to-rose-600 hover:from-orange-300 hover:to-rose-500 border-4 border-yellow-200 text-white font-black py-2.5 px-4 rounded-2xl text-lg sm:text-xl shadow-xl flex items-center justify-center gap-2">
+              <span>🚀</span><span>しゅっぱつ！</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. PAUSE MODAL -->
+      <div id="screen-pause" class="hidden interactive w-full max-w-md bg-slate-950/95 border-4 border-amber-400 rounded-3xl p-6 text-center text-white shadow-2xl">
+        <div class="text-5xl mb-2">⏸️</div>
+        <h2 class="text-2xl sm:text-3xl font-black text-amber-300 mb-4">ちょっと やすみちゅう</h2>
+        <div class="flex flex-col gap-3">
+          <button id="btn-resume" type="button" class="toy-btn bg-emerald-500 hover:bg-emerald-400 border-4 border-white text-slate-950 font-black py-3 rounded-2xl text-xl shadow-lg">
+            ▶️ つづきから あそぶ
+          </button>
+          <button id="btn-pause-retry" type="button" class="toy-btn bg-sky-500 hover:bg-sky-400 border-4 border-white text-white font-black py-3 rounded-2xl text-xl shadow-lg">
+            🔁 もういっかい 最初から
+          </button>
+          <button id="btn-pause-title" type="button" class="toy-btn bg-slate-700 hover:bg-slate-600 border-2 border-white/40 text-white font-black py-2.5 rounded-2xl text-base">
+            🚗 くるまを えらびなおす
+          </button>
+        </div>
+      </div>
+
+      <!-- 3. INSTANT CRASH LAB MODAL (わざと こわす！6種類選択) -->
+      <div id="screen-crash-picker" class="hidden interactive w-full max-w-xl bg-slate-950/95 border-4 border-rose-400 rounded-3xl p-4 sm:p-5 text-white shadow-2xl">
+        <div class="flex items-center justify-between mb-2">
+          <h2 class="text-lg sm:text-2xl font-black text-yellow-300">💥 どの こわれかたで ぶっこわす？</h2>
+          <button id="btn-close-crash-picker" type="button" class="toy-btn bg-slate-700 px-3 py-1 rounded-xl font-black text-sm">✖ とじる</button>
+        </div>
+        <p class="text-xs sm:text-sm text-rose-200 font-bold mb-3">
+          えらんだ こわれかたで、いまの くるまが リアルな物理演算で 3Dだいクラッシュするよ！
+        </p>
+        <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          <button type="button" data-crash="tumble" class="crash-pick-btn toy-btn bg-gradient-to-b from-sky-500 to-indigo-700 border-2 border-yellow-200 p-2.5 rounded-2xl font-black text-left shadow-lg">
+            <div class="text-2xl">🌪️🔄</div>
+            <div class="text-sm sm:text-base">① ゴロゴロ大回転</div>
+            <div class="text-[11px] text-yellow-100 opacity-90">激突して回転しながら次々に分解！</div>
+          </button>
+          <button type="button" data-crash="scatter" class="crash-pick-btn toy-btn bg-gradient-to-b from-orange-500 to-red-600 border-2 border-yellow-200 p-2.5 rounded-2xl font-black text-left shadow-lg">
+            <div class="text-2xl">💥🛞</div>
+            <div class="text-sm sm:text-base">② 高速スリップ分解</div>
+            <div class="text-[11px] text-yellow-100 opacity-90">火花を散らして前へバラバラ飛ぶ！</div>
+          </button>
+          <button type="button" data-crash="squash" class="crash-pick-btn toy-btn bg-gradient-to-b from-amber-500 to-orange-600 border-2 border-yellow-200 p-2.5 rounded-2xl font-black text-left shadow-lg">
+            <div class="text-2xl">🥞🔨</div>
+            <div class="text-sm sm:text-base">③ フロント激突潰れ</div>
+            <div class="text-[11px] text-yellow-100 opacity-90">前からグシャッと潰れて前転大破！</div>
+          </button>
+          <button type="button" data-crash="explode" class="crash-pick-btn toy-btn bg-gradient-to-b from-rose-600 to-purple-800 border-2 border-yellow-200 p-2.5 rounded-2xl font-black text-left shadow-lg">
+            <div class="text-2xl">🔥💣</div>
+            <div class="text-sm sm:text-base">④ 大爆発＆黒焦げ横転</div>
+            <div class="text-[11px] text-yellow-100 opacity-90">爆風で黒焦げになり吹き飛ぶ！</div>
+          </button>
+          <button type="button" data-crash="pinball" class="crash-pick-btn toy-btn bg-gradient-to-b from-fuchsia-500 to-pink-600 border-2 border-yellow-200 p-2.5 rounded-2xl font-black text-left shadow-lg">
+            <div class="text-2xl">🎪🍉</div>
+            <div class="text-sm sm:text-base">⑤ 高速スピン激突</div>
+            <div class="text-[11px] text-yellow-100 opacity-90">壁に跳ね返り超高速きりもみ分解！</div>
+          </button>
+          <button type="button" data-crash="water" class="crash-pick-btn toy-btn bg-gradient-to-b from-cyan-500 to-blue-600 border-2 border-yellow-200 p-2.5 rounded-2xl font-black text-left shadow-lg">
+            <div class="text-2xl">💦🛟</div>
+            <div class="text-sm sm:text-base">⑥ 水面バウンド水没</div>
+            <div class="text-[11px] text-yellow-100 opacity-90">水しぶきを上げて水面で分解浮遊！</div>
+          </button>
+        </div>
+      </div>
+
+      <!-- 4. RESULT CARD -->
+      <div id="screen-result" class="hidden interactive w-full max-w-xl self-end mb-1 bg-slate-950/92 backdrop-blur-md border-4 border-yellow-300 rounded-3xl p-3 text-white shadow-2xl animate-pop">
+        <div class="flex flex-col sm:flex-row items-center justify-between gap-2">
+          <div class="flex items-center gap-3 text-center sm:text-left">
+            <div id="result-emoji" class="text-4xl sm:text-5xl">👑</div>
+            <div>
+              <div id="result-badge" class="inline-block text-xs font-black px-2.5 py-0.5 rounded-full bg-yellow-400 text-slate-950 mb-0.5">
+                けっか はっぴょう！
+              </div>
+              <h2 id="result-title" class="text-lg sm:text-2xl font-black text-yellow-300 leading-tight">
+                だいせいこう！ぴたっと ちゃくち！
+              </h2>
+              <p id="result-detail" class="text-xs sm:text-sm text-sky-200 font-bold">
+                とんだ きょり：450m ／ パーツ ぶっとび：0こ
+              </p>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-2 w-full sm:w-auto justify-center">
+            <button id="btn-retry" type="button" class="toy-btn flex-1 sm:flex-initial bg-gradient-to-b from-emerald-400 to-emerald-600 border-4 border-white text-slate-950 font-black px-4 py-2 rounded-2xl text-base shadow-xl">
+              🔁 もういっかい！
+            </button>
+            <button id="btn-change-car" type="button" class="toy-btn flex-1 sm:flex-initial bg-gradient-to-b from-sky-400 to-blue-600 border-4 border-white text-white font-black px-3 py-2 rounded-2xl text-sm shadow-xl">
+              🚗 くるまをかえる
+            </button>
+          </div>
+        </div>
+
+        <div class="mt-2 pt-2 border-t border-white/15 flex flex-wrap items-center justify-between gap-1 text-xs">
+          <span class="font-bold text-amber-200">🎥 画面ドラッグで ぐるぐる見られるよ！ こわれかたを えらぶ👉</span>
+          <div class="flex flex-wrap gap-1">
+            <button type="button" data-crash="tumble" class="crash-pick-btn toy-btn bg-indigo-600 hover:bg-indigo-500 border border-yellow-300 px-2 py-0.5 rounded-lg font-black">①ゴロゴロ</button>
+            <button type="button" data-crash="scatter" class="crash-pick-btn toy-btn bg-rose-600 hover:bg-rose-500 border border-yellow-300 px-2 py-0.5 rounded-lg font-black">②スリップ分解</button>
+            <button type="button" data-crash="squash" class="crash-pick-btn toy-btn bg-orange-600 hover:bg-orange-500 border border-yellow-300 px-2 py-0.5 rounded-lg font-black">③フロント潰れ</button>
+            <button type="button" data-crash="explode" class="crash-pick-btn toy-btn bg-purple-700 hover:bg-purple-600 border border-yellow-300 px-2 py-0.5 rounded-lg font-black">④だいばくはつ</button>
+            <button type="button" data-crash="pinball" class="crash-pick-btn toy-btn bg-pink-600 hover:bg-pink-500 border border-yellow-300 px-2 py-0.5 rounded-lg font-black">⑤高速スピン</button>
+            <button type="button" data-crash="water" class="crash-pick-btn toy-btn bg-cyan-600 hover:bg-cyan-500 border border-yellow-300 px-2 py-0.5 rounded-lg font-black">⑥いけポチャ</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- BOTTOM ACTION CONTROLS (Shown during Run & Flight) -->
+    <div id="hud-controls" class="hidden w-full max-w-3xl mx-auto flex flex-col gap-1.5 pb-1">
+
+      <!-- Speed & Jump Progress Bar -->
+      <div class="bg-slate-950/90 backdrop-blur-md border-2 border-white/30 rounded-2xl py-1 px-3 flex items-center gap-3 text-white shadow-lg">
+        <div class="text-xs sm:text-sm font-black text-yellow-300 whitespace-nowrap" id="gauge-label">
+          🔥 スピード
+        </div>
+        <div class="flex-1 h-3.5 bg-slate-800 rounded-full overflow-hidden border border-white/30 p-0.5">
+          <div id="speed-bar" class="h-full w-0 rounded-full bg-gradient-to-r from-emerald-400 via-yellow-400 to-rose-500 transition-all duration-75"></div>
+        </div>
+        <div id="speed-readout" class="font-black text-xs sm:text-sm text-white w-28 text-right">
+          0 km/h
+        </div>
+      </div>
+
+      <!-- RUN PHASE BUTTON -->
+      <div id="controls-run" class="interactive flex justify-center">
+        <button id="btn-accelerate" type="button" class="toy-btn w-full sm:w-4/5 py-2.5 sm:py-3 rounded-3xl bg-gradient-to-b from-orange-400 via-orange-500 to-rose-600 border-4 border-yellow-200 text-white font-black text-base sm:text-xl shadow-xl flex items-center justify-center gap-2">
+          <span>🔥</span>
+          <span id="btn-accelerate-label">ながおし で ゴー！（はなして ジャンプ）</span>
+          <span>🚀</span>
+        </button>
+      </div>
+
+      <!-- FLIGHT PHASE BUTTONS -->
+      <div id="controls-flight" class="hidden interactive grid grid-cols-3 gap-2">
+        <button id="btn-pitch-down" type="button" class="toy-btn py-2 sm:py-2.5 rounded-2xl bg-gradient-to-b from-sky-500 to-blue-700 border-2 border-white text-white font-black text-xs sm:text-base shadow-xl flex flex-col items-center justify-center">
+          <span class="text-lg sm:text-xl">⤵️</span>
+          <span>まえに かたむく</span>
+        </button>
+        <button id="btn-air-boost" type="button" class="toy-btn py-2 sm:py-2.5 rounded-2xl bg-gradient-to-b from-yellow-400 via-amber-500 to-orange-600 border-2 border-white text-slate-950 font-black text-xs sm:text-base shadow-xl flex flex-col items-center justify-center">
+          <span class="text-lg sm:text-xl" id="boost-icon">🚀</span>
+          <span id="boost-label">とくべつブースト！</span>
+        </button>
+        <button id="btn-pitch-up" type="button" class="toy-btn py-2 sm:py-2.5 rounded-2xl bg-gradient-to-b from-sky-500 to-blue-700 border-2 border-white text-white font-black text-xs sm:text-base shadow-xl flex flex-col items-center justify-center">
+          <span class="text-lg sm:text-xl">⤴️</span>
+          <span>うしろに かたむく</span>
+        </button>
+      </div>
+
+    </div>
+
+  </div>
+
+  <script>
+    // =========================================================================
+    // 1. VEHICLE CATALOG (15 Realistic Vehicles)
+    // =========================================================================
+    const VEHICLES = [
+      {
+        id: 'lambo',
+        name: 'みどりのランボルギーニ',
+        icon: '🟢',
+        color: 0x16a34a,
+        accent: 0xfacc15,
+        speedStars: '★★★★★',
+        weightStars: '★★☆☆☆',
+        maxSpeed: 79,
+        accel: 14.2,
+        gravityMul: 0.93,
+        pitchSpeed: 1.55,
+        boostLabel: '⚡ V12ターボ全開！',
+        gimmickDesc: 'シザードア＆リアV12黄金ツインファン超回転！'
+      },
+      {
+        id: 'tractor',
+        name: 'あかのトラクター',
+        icon: '🚜',
+        color: 0xd90429,
+        accent: 0xfacc15,
+        speedStars: '★★★☆☆',
+        weightStars: '★★★★★',
+        maxSpeed: 67,
+        accel: 12.0,
+        gravityMul: 1.02,
+        pitchSpeed: 1.45,
+        boostLabel: '🌾 フルパワーけんいん！',
+        gimmickDesc: '特大リアタイヤ＆煙突マフラー＆かぼちゃ大散乱！'
+      },
+      {
+        id: 'cultivator',
+        name: 'こううんき',
+        icon: '🌾',
+        color: 0xdc2626,
+        accent: 0xf8fafc,
+        speedStars: '★★★☆☆',
+        weightStars: '★★☆☆☆',
+        maxSpeed: 65,
+        accel: 12.8,
+        gravityMul: 0.91,
+        pitchSpeed: 1.75,
+        boostLabel: '🌀 ロータリー超回転！',
+        gimmickDesc: '後ろの耕うん爪ロータリーが高速回転＆野菜が飛ぶ！'
+      },
+      {
+        id: 'sports',
+        name: 'あかのすぽーつかー',
+        icon: '🏎️',
+        color: 0xd90429,
+        accent: 0xffbe0b,
+        speedStars: '★★★★★',
+        weightStars: '★★☆☆☆',
+        maxSpeed: 76,
+        accel: 13.5,
+        gravityMul: 0.95,
+        pitchSpeed: 1.5,
+        boostLabel: '🔥 ツインターボ噴射！',
+        gimmickDesc: 'ツインターボ炎＆黄金ファン超回転！'
+      },
+      {
+        id: 'police',
+        name: 'ぱとかー',
+        icon: '🚓',
+        color: 0xffffff,
+        accent: 0x090d16,
+        speedStars: '★★★★☆',
+        weightStars: '★★★☆☆',
+        maxSpeed: 73,
+        accel: 12.8,
+        gravityMul: 0.98,
+        pitchSpeed: 1.45,
+        boostLabel: '🚨 サイレン緊急加速！',
+        gimmickDesc: '赤色灯ストロボ＆カラーコーン大散乱！'
+      },
+      {
+        id: 'ambulance',
+        name: 'きゅうきゅうしゃ',
+        icon: '🚑',
+        color: 0xf8fafc,
+        accent: 0xd90429,
+        speedStars: '★★★★☆',
+        weightStars: '★★★☆☆',
+        maxSpeed: 70,
+        accel: 12.2,
+        gravityMul: 1.0,
+        pitchSpeed: 1.35,
+        boostLabel: '🚑 ピーポー緊急出動！',
+        gimmickDesc: '後ろのドアが開いて担架と救急箱が飛び出す！'
+      },
+      {
+        id: 'firetruck',
+        name: 'しょうぼうしゃ',
+        icon: '🚒',
+        color: 0xb91c1c,
+        accent: 0xfacc15,
+        speedStars: '★★★☆☆',
+        weightStars: '★★★★☆',
+        maxSpeed: 69,
+        accel: 11.8,
+        gravityMul: 1.03,
+        pitchSpeed: 1.3,
+        boostLabel: '💦 大放水ジェット推進！',
+        gimmickDesc: '放水銃から大量の水しぶき＆はしご大発射！'
+      },
+      {
+        id: 'dumptruck',
+        name: 'だんぷかー',
+        icon: '🛻',
+        color: 0xf59e0b,
+        accent: 0x18181b,
+        speedStars: '★★★☆☆',
+        weightStars: '★★★★★',
+        maxSpeed: 68,
+        accel: 11.5,
+        gravityMul: 1.06,
+        pitchSpeed: 1.25,
+        boostLabel: '🪨 にだいダンプアップ！',
+        gimmickDesc: '荷台が跳ね上がり巨大な岩14個が大崩落！'
+      },
+      {
+        id: 'excavator',
+        name: 'しょべるかー',
+        icon: '🦺',
+        color: 0xea580c,
+        accent: 0x0284c7,
+        speedStars: '★★★☆☆',
+        weightStars: '★★★★★',
+        maxSpeed: 66,
+        accel: 11.4,
+        gravityMul: 1.04,
+        pitchSpeed: 1.5,
+        boostLabel: '🦾 ショベル大回転！',
+        gimmickDesc: 'ショベルの腕とバケットがブンブン大暴れ！'
+      },
+      {
+        id: 'mixer',
+        name: 'みきさーしゃ',
+        icon: '🚛',
+        color: 0x047857,
+        accent: 0xfacc15,
+        speedStars: '★★★☆☆',
+        weightStars: '★★★★☆',
+        maxSpeed: 68,
+        accel: 11.8,
+        gravityMul: 1.03,
+        pitchSpeed: 1.35,
+        boostLabel: '🌀 ミキサー超回転！',
+        gimmickDesc: 'ドラムが超回転してカラフルセメント玉18個が噴出！'
+      },
+      {
+        id: 'garbage',
+        name: 'ごみしゅうしゅうしゃ',
+        icon: '🗑️',
+        color: 0x1d4ed8,
+        accent: 0xfacc15,
+        speedStars: '★★★☆☆',
+        weightStars: '★★★☆☆',
+        maxSpeed: 69,
+        accel: 12.0,
+        gravityMul: 1.0,
+        pitchSpeed: 1.4,
+        boostLabel: '🗑️ ごみジェット噴射！',
+        gimmickDesc: '後ろの扉が開いてゴミ袋と空き缶18個が大噴火！'
+      },
+      {
+        id: 'forklift',
+        name: 'ふぉーくりふと',
+        icon: '🏗️',
+        color: 0xd97706,
+        accent: 0x111827,
+        speedStars: '★★★☆☆',
+        weightStars: '★★☆☆☆',
+        maxSpeed: 67,
+        accel: 12.4,
+        gravityMul: 0.93,
+        pitchSpeed: 1.65,
+        boostLabel: '📦 ツメ急上昇ブースト！',
+        gimmickDesc: '前のツメが動いて段ボール箱とパレットが宙を舞う！'
+      },
+      {
+        id: 'bus',
+        name: 'かんこうばす',
+        icon: '🚌',
+        color: 0x0369a1,
+        accent: 0xfacc15,
+        speedStars: '★★★★☆',
+        weightStars: '★★★★☆',
+        maxSpeed: 71,
+        accel: 12.1,
+        gravityMul: 1.01,
+        pitchSpeed: 1.25,
+        boostLabel: '🌀 ダブルエアコン全開！',
+        gimmickDesc: '屋根の大型ファン2基が全開＆座席と荷物が大放出！'
+      },
+      {
+        id: 'keitruck',
+        name: 'けいとら',
+        icon: '🚚',
+        color: 0xe2e8f0,
+        accent: 0x15803d,
+        speedStars: '★★★★☆',
+        weightStars: '★☆☆☆☆',
+        maxSpeed: 72,
+        accel: 13.0,
+        gravityMul: 0.9,
+        pitchSpeed: 1.7,
+        boostLabel: '🍉 すいか大噴火ロケット！',
+        gimmickDesc: '荷台の丸ごとスイカ＆赤いカットスイカ18個が大散乱！'
+      },
+      {
+        id: 'monster',
+        name: 'もんすたーとらっく',
+        icon: '🚙',
+        color: 0x6b21a8,
+        accent: 0xfacc15,
+        speedStars: '★★★★★',
+        weightStars: '★★★★☆',
+        maxSpeed: 75,
+        accel: 13.2,
+        gravityMul: 0.96,
+        pitchSpeed: 1.55,
+        boostLabel: '⚡ ダブルファン大爆走！',
+        gimmickDesc: '特大タイヤ4輪とダブル冷却ファンが大ジャンプ反発！'
+      }
+    ];
+
+    const CRASH_NAMES = {
+      tumble:  '🌪️ ゴロゴロ大回転バラバラクラッシュ！',
+      scatter: '💥 高速スリップ大分解クラッシュ！',
+      squash:  '🥞 フロント激突・前転クラッシュ！',
+      explode: '🔥 ドッカーン！大爆発＆黒焦げ横転！',
+      pinball: '🎪 高速きりもみスピン大破！',
+      water:   '💦 水面スキップ・水没大分解！'
+    };
+
+    let highScore = 0;
+    try {
+      const saved = localStorage.getItem('car_jump_3d_highscore');
+      if (saved) highScore = parseInt(saved, 10) || 0;
+    } catch (e) {}
+
+    function updateHighScoreDisplay(newScore = 0) {
+      if (newScore > highScore) {
+        highScore = newScore;
+        try {
+          localStorage.setItem('car_jump_3d_highscore', String(highScore));
+        } catch (e) {}
+      }
+      const el = document.getElementById('hud-highscore');
+      if (el) el.textContent = `🏆 ハイスコア: ${highScore}てん`;
+    }
+
+    function spawnComicPopup(text, colorClass = 'text-yellow-300', xPct = 50, yPct = 42) {
+      const layer = document.getElementById('comic-popup-layer');
+      if (!layer) return;
+      const div = document.createElement('div');
+      div.className = `comic-popup font-black text-2xl sm:text-4xl whitespace-nowrap ${colorClass}`;
+      div.style.left = `${xPct + (Math.random() - 0.5) * 24}%`;
+      div.style.top = `${yPct + (Math.random() - 0.5) * 16}%`;
+      div.textContent = text;
+      layer.appendChild(div);
+      setTimeout(() => {
+        if (div.parentNode) div.parentNode.removeChild(div);
+      }, 1200);
+    }
+
+    // =========================================================================
+    // 2. WEB AUDIO SYNTHESIZER
+    // =========================================================================
+    class SoundEngine {
+      constructor() {
+        this.ctx = null;
+        this.enabled = true;
+        this.engineOsc = null;
+        this.engineGain = null;
+        this.sirenTimer = 0;
+      }
+
+      init() {
+        if (!this.ctx) {
+          const AudioCtx = window.AudioContext || window.webkitAudioContext;
+          if (AudioCtx) {
+            this.ctx = new AudioCtx();
+          }
+        }
+        if (this.ctx && this.ctx.state === 'suspended') {
+          this.ctx.resume();
+        }
+      }
+
+      toggle() {
+        this.enabled = !this.enabled;
+        this.init();
+        if (!this.enabled) {
+          this.stopEngine();
+        }
+        return this.enabled;
+      }
+
+      startEngine() {
+        if (!this.enabled) return;
+        this.init();
+        if (!this.ctx || this.engineOsc) return;
+        try {
+          this.engineOsc = this.ctx.createOscillator();
+          const filter = this.ctx.createBiquadFilter();
+          this.engineGain = this.ctx.createGain();
+
+          this.engineOsc.type = 'sawtooth';
+          this.engineOsc.frequency.value = 55;
+          filter.type = 'lowpass';
+          filter.frequency.value = 380;
+          this.engineGain.gain.value = 0.08;
+
+          this.engineOsc.connect(filter);
+          filter.connect(this.engineGain);
+          this.engineGain.connect(this.ctx.destination);
+          this.engineOsc.start();
+        } catch (e) {}
+      }
+
+      updateEngine(speedRatio, carId, dt) {
+        if (!this.enabled || !this.ctx) return;
+        if (this.engineOsc) {
+          const targetFreq = 55 + speedRatio * 220;
+          this.engineOsc.frequency.setTargetAtTime(targetFreq, this.ctx.currentTime, 0.05);
+        }
+        if ((carId === 'police' || carId === 'ambulance' || carId === 'firetruck') && speedRatio > 0.15) {
+          this.sirenTimer += dt;
+          if (this.sirenTimer > 0.45) {
+            this.sirenTimer = 0;
+            this.playTone(this.sirenHigh ? 960 : 770, 0.35, 'sine', 0.06);
+            this.sirenHigh = !this.sirenHigh;
+          }
+        }
+      }
+
+      stopEngine() {
+        if (this.engineOsc) {
+          try {
+            this.engineOsc.stop();
+            this.engineOsc.disconnect();
+          } catch (e) {}
+          this.engineOsc = null;
+          this.engineGain = null;
+        }
+      }
+
+      playTone(freq, duration, type = 'sine', vol = 0.12, slideTo = null) {
+        if (!this.enabled) return;
+        this.init();
+        if (!this.ctx) return;
+        try {
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = type;
+          osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+          if (slideTo) {
+            osc.frequency.exponentialRampToValueAtTime(Math.max(20, slideTo), this.ctx.currentTime + duration);
+          }
+          gain.gain.setValueAtTime(vol, this.ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + duration);
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start();
+          osc.stop(this.ctx.currentTime + duration);
+        } catch (e) {}
+      }
+
+      playNoise(duration, filterFreq = 800, vol = 0.22) {
+        if (!this.enabled) return;
+        this.init();
+        if (!this.ctx) return;
+        try {
+          const bufferSize = Math.floor(this.ctx.sampleRate * duration);
+          const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+          const data = buffer.getChannelData(0);
+          for (let i = 0; i < bufferSize; i++) {
+            data[i] = Math.random() * 2 - 1;
+          }
+          const noise = this.ctx.createBufferSource();
+          noise.buffer = buffer;
+
+          const filter = this.ctx.createBiquadFilter();
+          filter.type = 'lowpass';
+          filter.frequency.setValueAtTime(filterFreq, this.ctx.currentTime);
+          filter.frequency.exponentialRampToValueAtTime(120, this.ctx.currentTime + duration);
+
+          const gain = this.ctx.createGain();
+          gain.gain.setValueAtTime(vol, this.ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + duration);
+
+          noise.connect(filter);
+          filter.connect(this.ctx.destination);
+          noise.start();
+        } catch (e) {}
+      }
+
+      playJump(isPerfect) {
+        this.playTone(220, 0.55, 'triangle', 0.16, isPerfect ? 980 : 680);
+        if (isPerfect) {
+          setTimeout(() => this.playTone(880, 0.35, 'sine', 0.14, 1320), 120);
+        }
+      }
+
+      playBoost() {
+        this.playNoise(0.35, 1600, 0.16);
+        this.playTone(180, 0.35, 'sawtooth', 0.12, 620);
+      }
+
+      playCrash(mode) {
+        this.stopEngine();
+        if (mode === 'explode') {
+          this.playNoise(0.95, 1200, 0.35);
+          this.playTone(110, 0.8, 'sawtooth', 0.25, 28);
+        } else if (mode === 'squash') {
+          this.playNoise(0.55, 900, 0.28);
+          this.playTone(260, 0.5, 'sawtooth', 0.22, 48);
+        } else if (mode === 'water') {
+          this.playNoise(0.85, 2200, 0.28);
+          this.playTone(320, 0.4, 'sine', 0.15, 140);
+        } else {
+          this.playNoise(0.7, 1400, 0.3);
+          this.playTone(140, 0.5, 'sawtooth', 0.2, 38);
+        }
+      }
+
+      playPartBounce(isWheel = false) {
+        if (Math.random() > 0.42) return;
+        if (isWheel) {
+          this.playTone(140 + Math.random() * 100, 0.12, 'sine', 0.07, 75);
+        } else {
+          this.playNoise(0.08, 1800, 0.08);
+          this.playTone(420 + Math.random() * 750, 0.08, 'triangle', 0.05, 220);
+        }
+      }
+
+      playSuccessFanfare() {
+        this.stopEngine();
+        const notes = [523.25, 659.25, 783.99, 1046.5];
+        notes.forEach((n, idx) => {
+          setTimeout(() => {
+            this.playTone(n, 0.35, 'triangle', 0.16);
+            this.playTone(n * 0.5, 0.35, 'sawtooth', 0.08);
+          }, idx * 110);
+        });
+      }
+    }
+
+    const sound = new SoundEngine();
+
+    // =========================================================================
+    // 3. MEGA SKI JUMP RAMP GEOMETRY (SAFE CLAMPED HEIGHT)
+    // =========================================================================
+    const RAMP_END_Z = 420;
+    const TAKEOFF_ZONE_START_Z = 355;
+
+    function getRampHeight(z) {
+      const cz = Math.max(0, Math.min(RAMP_END_Z, z));
+      if (cz <= 22) {
+        return 175;
+      } else if (cz <= 355) {
+        const t = (cz - 22) / (355 - 22);
+        return 175 - 151 * (0.5 - 0.5 * Math.cos(Math.PI * t));
+      } else {
+        const t = (cz - 355) / (RAMP_END_Z - 355);
+        return 24 + 10.0 * (t * t);
+      }
+    }
+
+    function getRampPitchAngle(z) {
+      const cz = Math.max(1, Math.min(RAMP_END_Z - 1, z));
+      const dz = 1.0;
+      const y1 = getRampHeight(cz - dz);
+      const y2 = getRampHeight(cz + dz);
+      return Math.atan2(y2 - y1, dz * 2);
+    }
+
+    // =========================================================================
+    // 4. HIGH-CONTRAST STUDIO REFLECTION & DEEP SATURATED CAR PAINT SHADERS
+    // =========================================================================
+    function createAutomotiveEnvMap(rendererInstance) {
+      const canvas = document.createElement('canvas');
+      canvas.width = 512;
+      canvas.height = 256;
+      const ctx = canvas.getContext('2d');
+
+      const grad = ctx.createLinearGradient(0, 0, 0, 256);
+      grad.addColorStop(0.0, '#0f172a');
+      grad.addColorStop(0.42, '#1e293b');
+      grad.addColorStop(0.5, '#090d16');
+      grad.addColorStop(1.0, '#020617');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 512, 256);
+
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+      ctx.fillRect(50, 36, 140, 10);
+      ctx.fillRect(300, 32, 150, 12);
+      ctx.fillStyle = 'rgba(253, 224, 71, 0.85)';
+      ctx.beginPath();
+      ctx.arc(380, 68, 16, 0, Math.PI * 2);
+      ctx.fill();
+
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.mapping = THREE.EquirectangularReflectionMapping;
+      tex.needsUpdate = true;
+
+      try {
+        const pmrem = new THREE.PMREMGenerator(rendererInstance);
+        pmrem.compileEquirectangularShader();
+        const envRT = pmrem.fromEquirectangular(tex);
+        pmrem.dispose();
+        return envRT.texture;
+      } catch (e) {
+        return tex;
+      }
+    }
+
+    function createCarPaintMaterial(hexColor, metalness = 0.22, roughness = 0.2) {
+      return new THREE.MeshPhysicalMaterial({
+        color: hexColor,
+        metalness,
+        roughness,
+        clearcoat: 0.95,
+        clearcoatRoughness: 0.08,
+        envMapIntensity: 0.55
+      });
+    }
+
+    function createSmoothRoundedBox(w, h, l, radius = 0.18, mat) {
+      const r = Math.min(radius, w * 0.35, h * 0.35, l * 0.35);
+      const wi = Math.max(0.05, w - r * 2);
+      const hi = Math.max(0.05, h - r * 2);
+      const li = Math.max(0.05, l - r * 2);
+
+      const shape = new THREE.Shape();
+      const hw = wi * 0.5;
+      const hh = hi * 0.5;
+      shape.moveTo(-hw, -hh + r);
+      shape.lineTo(-hw, hh - r);
+      shape.quadraticCurveTo(-hw, hh, -hw + r, hh);
+      shape.lineTo(hw - r, hh);
+      shape.quadraticCurveTo(hw, hh, hw, hh - r);
+      shape.lineTo(hw, -hh + r);
+      shape.quadraticCurveTo(hw, -hh, hw - r, -hh);
+      shape.lineTo(-hw + r, -hh);
+      shape.quadraticCurveTo(-hw, -hh, -hw, -hh + r);
+
+      const geo = new THREE.ExtrudeGeometry(shape, {
+        depth: li,
+        bevelEnabled: true,
+        bevelSegments: 6,
+        steps: 1,
+        bevelSize: r,
+        bevelThickness: r,
+        curveSegments: 16
+      });
+      geo.center();
+      geo.computeVertexNormals();
+      return new THREE.Mesh(geo, mat);
+    }
+
+    function createSculptedProfileMesh(points2D, width, bevel = 0.18, mat) {
+      const shape = new THREE.Shape();
+      shape.moveTo(points2D[0][0], points2D[0][1]);
+      for (let i = 1; i < points2D.length; i++) {
+        shape.lineTo(points2D[i][0], points2D[i][1]);
+      }
+      shape.closePath();
+
+      const depth = Math.max(0.1, width - bevel * 2);
+      const geo = new THREE.ExtrudeGeometry(shape, {
+        depth,
+        bevelEnabled: true,
+        bevelSegments: 6,
+        steps: 1,
+        bevelSize: bevel,
+        bevelThickness: bevel,
+        curveSegments: 18
+      });
+      geo.center();
+      geo.rotateY(Math.PI / 2);
+      geo.computeVertexNormals();
+      return new THREE.Mesh(geo, mat);
+    }
+
+    function createCoolingFanMesh(radius = 0.65, bladeColor = 0x0284c7) {
+      const fanGroup = new THREE.Group();
+
+      const shroud = new THREE.Mesh(
+        new THREE.TorusGeometry(radius * 0.96, radius * 0.09, 14, 28),
+        new THREE.MeshStandardMaterial({ color: 0x090d16, metalness: 0.7, roughness: 0.25 })
+      );
+      fanGroup.add(shroud);
+
+      const hub = new THREE.Mesh(
+        new THREE.ConeGeometry(radius * 0.28, 0.34, 20),
+        new THREE.MeshStandardMaterial({ color: 0xfacc15, metalness: 0.75, roughness: 0.2 })
+      );
+      hub.rotation.x = Math.PI / 2;
+      fanGroup.add(hub);
+
+      const bladeMat = createCarPaintMaterial(bladeColor, 0.2, 0.2);
+      for (let i = 0; i < 7; i++) {
+        const blade = createSmoothRoundedBox(radius * 0.78, 0.18, 0.06, 0.02, bladeMat);
+        const angle = (i / 7) * Math.PI * 2;
+        blade.position.set(Math.cos(angle) * radius * 0.48, Math.sin(angle) * radius * 0.48, 0);
+        blade.rotation.z = angle + 0.42;
+        blade.rotation.y = 0.38;
+        fanGroup.add(blade);
+      }
+      return fanGroup;
+    }
+
+    function createWheelMesh(radius = 0.85, width = 0.56, rimColor = 0xfacc15) {
+      const wheelGroup = new THREE.Group();
+
+      const rubberMat = new THREE.MeshStandardMaterial({
+        color: 0x090d16,
+        roughness: 0.8,
+        metalness: 0.05
+      });
+
+      const torusR = radius * 0.78;
+      const tubeR = radius * 0.22;
+      [-width * 0.26, width * 0.26].forEach((tx) => {
+        const shoulder = new THREE.Mesh(new THREE.TorusGeometry(torusR, tubeR, 18, 32), rubberMat);
+        shoulder.rotation.y = Math.PI / 2;
+        shoulder.position.x = tx;
+        shoulder.castShadow = true;
+        wheelGroup.add(shoulder);
+      });
+
+      const treadGeo = new THREE.CylinderGeometry(radius, radius, width * 0.65, 32);
+      treadGeo.rotateZ(Math.PI / 2);
+      const tread = new THREE.Mesh(treadGeo, rubberMat);
+      tread.castShadow = true;
+      wheelGroup.add(tread);
+
+      const alloyMat = new THREE.MeshPhysicalMaterial({
+        color: rimColor,
+        metalness: 0.75,
+        roughness: 0.18,
+        clearcoat: 0.8,
+        envMapIntensity: 0.6
+      });
+      const rimGeo = new THREE.CylinderGeometry(radius * 0.62, radius * 0.62, width * 0.82, 24);
+      rimGeo.rotateZ(Math.PI / 2);
+      const rim = new THREE.Mesh(rimGeo, alloyMat);
+      wheelGroup.add(rim);
+
+      const discGeo = new THREE.CylinderGeometry(radius * 0.46, radius * 0.46, width * 0.86, 20);
+      discGeo.rotateZ(Math.PI / 2);
+      const disc = new THREE.Mesh(
+        discGeo,
+        new THREE.MeshStandardMaterial({ color: 0x64748b, metalness: 0.8, roughness: 0.3 })
+      );
+      wheelGroup.add(disc);
+
+      const spokeMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.8, roughness: 0.18 });
+      for (let i = 0; i < 5; i++) {
+        const angle = (i / 5) * Math.PI * 2;
+        const spoke = createSmoothRoundedBox(width * 0.88, radius * 0.56, radius * 0.12, 0.03, spokeMat);
+        spoke.position.set(0, Math.cos(angle) * radius * 0.28, Math.sin(angle) * radius * 0.28);
+        spoke.rotation.x = -angle;
+        wheelGroup.add(spoke);
+      }
+
+      const capGeo = new THREE.CylinderGeometry(radius * 0.18, radius * 0.18, width * 0.92, 16);
+      capGeo.rotateZ(Math.PI / 2);
+      const cap = new THREE.Mesh(capGeo, new THREE.MeshStandardMaterial({ color: 0xd90429, metalness: 0.6, roughness: 0.2 }));
+      wheelGroup.add(cap);
+
+      return wheelGroup;
+    }
+
+    // =========================================================================
+    // 5. REALISTIC 3D MULTI-PART VEHICLE BUILDER
+    // =========================================================================
+    function buildVehicle3D(spec) {
+      const rootGroup = new THREE.Group();
+      const squashGroup = new THREE.Group();
+      rootGroup.add(squashGroup);
+
+      const parts = [];
+      const spinningFans = [];
+      const wheels = [];
+      let gimmickPart = null;
+
+      const registerPart = (mesh, partType, releaseStage = 1, opts = {}) => {
+        mesh.traverse((child) => {
+          if (child.isMesh) {
+            child.castShadow = true;
+            child.receiveShadow = true;
+          }
+        });
+        squashGroup.add(mesh);
+        parts.push({
+          mesh,
+          partType,
+          releaseStage,
+          detached: false,
+          origPos: mesh.position.clone(),
+          origRot: mesh.rotation.clone(),
+          origScale: mesh.scale.clone(),
+          vel: new THREE.Vector3(),
+          angVel: new THREE.Vector3(),
+          radius: opts.radius || 0.65,
+          restitution: opts.restitution || (partType === 'wheel' ? 0.76 : partType === 'cargo' ? 0.72 : 0.42),
+          rollOnGround: Boolean(opts.rollOnGround || partType === 'wheel' || partType === 'cargo'),
+          alwaysSpin: Boolean(opts.alwaysSpin || partType === 'fan'),
+          floatsInWater: opts.floatsInWater !== false
+        });
+        return mesh;
+      };
+
+      const mainMat = createCarPaintMaterial(spec.color, 0.22, 0.16);
+      const accentMat = createCarPaintMaterial(spec.accent, 0.22, 0.18);
+      const darkMat = new THREE.MeshStandardMaterial({ color: 0x090d16, roughness: 0.5, metalness: 0.25 });
+      const chromeMat = new THREE.MeshPhysicalMaterial({
+        color: 0xdbeafe,
+        metalness: 0.85,
+        roughness: 0.12,
+        clearcoat: 1.0,
+        envMapIntensity: 0.65
+      });
+      const glassMat = new THREE.MeshPhysicalMaterial({
+        color: 0x020617,
+        metalness: 0.15,
+        roughness: 0.06,
+        transparent: true,
+        opacity: 0.9,
+        clearcoat: 1.0,
+        envMapIntensity: 0.8
+      });
+
+      // SPECIAL BUILD A: 🌾 こううんき
+      if (spec.id === 'cultivator') {
+        const wheelRadius = 0.72;
+        const chassisY = wheelRadius + 0.1;
+
+        [-1.05, 1.05].forEach((wx) => {
+          const wMesh = createWheelMesh(wheelRadius, 0.45, 0xf8fafc);
+          wMesh.position.set(wx, wheelRadius, 0.35);
+          registerPart(wMesh, 'wheel', 3, { radius: wheelRadius, restitution: 0.78, rollOnGround: true });
+          wheels.push(wMesh);
+
+          const fender = createSmoothRoundedBox(0.55, 0.16, 1.25, 0.06, mainMat);
+          fender.position.set(wx, wheelRadius * 2 + 0.08, 0.35);
+          registerPart(fender, 'bumper', 1);
+        });
+
+        // Core frame stays with activeCar so it tumbles realistically!
+        const gearbox = createSmoothRoundedBox(1.3, 0.65, 2.2, 0.14, darkMat);
+        gearbox.position.set(0, chassisY + 0.1, 0.1);
+        registerPart(gearbox, 'chassis', 99);
+
+        const engineCover = createSmoothRoundedBox(1.45, 0.85, 1.45, 0.18, mainMat);
+        engineCover.position.set(0, chassisY + 0.75, 0.65);
+        registerPart(engineCover, 'hood', 2);
+
+        const whiteTop = createSmoothRoundedBox(1.48, 0.32, 1.48, 0.12, accentMat);
+        whiteTop.position.set(0, chassisY + 1.25, 0.65);
+        registerPart(whiteTop, 'roof', 1);
+
+        const frontFan = createCoolingFanMesh(0.62, 0xfacc15);
+        frontFan.position.set(0, chassisY + 0.78, 1.45);
+        registerPart(frontFan, 'fan', 3, { alwaysSpin: true });
+        spinningFans.push(frontFan);
+
+        [-0.58, 0.58].forEach((hx) => {
+          const handleBar = createSmoothRoundedBox(0.14, 0.14, 2.6, 0.05, chromeMat);
+          handleBar.position.set(hx, chassisY + 1.15, -1.25);
+          handleBar.rotation.x = 0.36;
+          registerPart(handleBar, 'door', 2);
+
+          const grip = createSmoothRoundedBox(0.2, 0.2, 0.45, 0.06, darkMat);
+          grip.position.set(hx, chassisY + 1.62, -2.42);
+          registerPart(grip, 'light', 1);
+        });
+
+        const rotaryGroup = new THREE.Group();
+        const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 2.2, 16), darkMat);
+        shaft.rotation.z = Math.PI / 2;
+        rotaryGroup.add(shaft);
+        for (let i = -3; i <= 3; i++) {
+          const tineWheel = createCoolingFanMesh(0.68, 0xe2e8f0);
+          tineWheel.rotation.y = Math.PI / 2;
+          tineWheel.position.x = i * 0.28;
+          rotaryGroup.add(tineWheel);
+        }
+        rotaryGroup.position.set(0, 0.68, -1.35);
+        gimmickPart = registerPart(rotaryGroup, 'fan', 2, { radius: 0.7, alwaysSpin: true, rollOnGround: true });
+        spinningFans.push(rotaryGroup);
+
+        const shield = createSmoothRoundedBox(2.35, 0.28, 1.15, 0.1, mainMat);
+        shield.position.set(0, chassisY + 0.42, -1.35);
+        registerPart(shield, 'special', 1);
+
+        for (let i = 0; i < 14; i++) {
+          const isCarrot = i % 2 === 0;
+          const veg = new THREE.Mesh(
+            new THREE.ConeGeometry(0.26, 0.85, 14),
+            createCarPaintMaterial(isCarrot ? 0xea580c : 0xf8fafc, 0.1, 0.25)
+          );
+          veg.position.set(((i % 3) - 1) * 0.55, chassisY + 0.85 + Math.floor(i / 6) * 0.4, -0.8 - (i % 4) * 0.35);
+          registerPart(veg, 'cargo', 1, { radius: 0.35, restitution: 0.76, rollOnGround: true });
+        }
+
+        return { rootGroup, squashGroup, parts, spinningFans, wheels, wheelRadius, gimmickPart };
+      }
+
+      // SPECIAL BUILD B: 🚜 あかのトラクター
+      if (spec.id === 'tractor') {
+        const frontR = 0.78;
+        const rearR = 1.48;
+        const chassisY = 0.92;
+
+        [[-1.25, frontR, 1.75], [1.25, frontR, 1.75]].forEach(([wx, wy, wz]) => {
+          const wMesh = createWheelMesh(frontR, 0.52, 0xfacc15);
+          wMesh.position.set(wx, wy, wz);
+          registerPart(wMesh, 'wheel', 2, { radius: frontR, restitution: 0.78, rollOnGround: true });
+          wheels.push(wMesh);
+        });
+        [[-1.48, rearR, -1.25], [1.48, rearR, -1.25]].forEach(([wx, wy, wz]) => {
+          const wMesh = createWheelMesh(rearR, 0.88, 0xfacc15);
+          wMesh.position.set(wx, wy, wz);
+          registerPart(wMesh, 'wheel', 3, { radius: rearR, restitution: 0.8, rollOnGround: true });
+          wheels.push(wMesh);
+
+          const fender = createSmoothRoundedBox(0.92, 0.24, 2.2, 0.1, mainMat);
+          fender.position.set(wx * 0.88, rearR * 1.92, wz);
+          registerPart(fender, 'bumper', 2);
+        });
+
+        const chassis = createSmoothRoundedBox(1.85, 0.55, 4.6, 0.14, darkMat);
+        chassis.position.set(0, chassisY, 0.2);
+        registerPart(chassis, 'chassis', 99);
+
+        const nose = createSmoothRoundedBox(1.45, 1.25, 2.35, 0.2, mainMat);
+        nose.position.set(0, chassisY + 0.85, 1.15);
+        registerPart(nose, 'hood', 2);
+
+        const tractorFan = createCoolingFanMesh(0.66, 0xfacc15);
+        tractorFan.position.set(0, chassisY + 0.85, 2.38);
+        registerPart(tractorFan, 'fan', 3, { alwaysSpin: true });
+        spinningFans.push(tractorFan);
+
+        const chimney = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.2, 1.85, 16), darkMat);
+        chimney.position.set(0.55, chassisY + 1.95, 1.25);
+        gimmickPart = registerPart(chimney, 'exhaust', 1);
+
+        const seat = createSmoothRoundedBox(0.95, 0.75, 0.85, 0.12, accentMat);
+        seat.position.set(0, chassisY + 0.95, -0.95);
+        registerPart(seat, 'door', 2);
+
+        [-0.95, 0.95].forEach((px) => {
+          const pillar = createSmoothRoundedBox(0.16, 1.95, 0.16, 0.04, darkMat);
+          pillar.position.set(px, chassisY + 1.85, -1.25);
+          registerPart(pillar, 'door', 1);
+        });
+
+        const canopy = createSmoothRoundedBox(2.25, 0.24, 1.95, 0.1, mainMat);
+        canopy.position.set(0, chassisY + 2.85, -1.05);
+        registerPart(canopy, 'roof', 1);
+
+        for (let i = 0; i < 14; i++) {
+          const isPumpkin = i % 2 === 0;
+          const item = new THREE.Mesh(
+            new THREE.SphereGeometry(0.42, 16, 16),
+            createCarPaintMaterial(isPumpkin ? 0xea580c : 0xeab308, 0.15, 0.25)
+          );
+          item.position.set(((i % 3) - 1) * 0.68, chassisY + 0.75 + Math.floor(i / 6) * 0.55, -1.8 - (i % 4) * 0.45);
+          registerPart(item, 'cargo', 1, { radius: 0.42, restitution: 0.76, rollOnGround: true });
+        }
+
+        return { rootGroup, squashGroup, parts, spinningFans, wheels, wheelRadius: frontR, gimmickPart };
+      }
+
+      // STANDARD & SUPERCAR BUILD
+      const isMonster = spec.id === 'monster';
+      const isBus = spec.id === 'bus';
+      const isForklift = spec.id === 'forklift';
+      const isLambo = spec.id === 'lambo';
+      const isSports = spec.id === 'sports' || isLambo;
+
+      const wheelRadius = isMonster ? 1.42 : isForklift ? 0.68 : 0.88;
+      const wheelWidth = isMonster ? 0.92 : isLambo ? 0.66 : 0.56;
+      const chassisY = wheelRadius + (isMonster ? 0.62 : isLambo ? 0.05 : 0.12);
+      const length = isBus ? 7.8 : isForklift ? 4.3 : isLambo ? 5.9 : 5.6;
+      const width = isMonster ? 3.1 : isLambo ? 2.82 : 2.6;
+
+      // 1. Central Chassis stays attached to activeCar (`releaseStage = 99`) so the car's core body
+      // tumbles, skids, and rolls along the asphalt realistically while shedding all its outer parts!
+      const chassis = createSmoothRoundedBox(width * 0.92, 0.48, length * 0.9, 0.14, darkMat);
+      chassis.position.set(0, chassisY, 0);
+      registerPart(chassis, 'chassis', 99, { radius: 0.9 });
+
+      [-0.55, 0.55].forEach((ex) => {
+        const exhaust = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.18, 0.75, 16), chromeMat);
+        exhaust.rotation.x = Math.PI / 2;
+        exhaust.position.set(ex, chassisY - 0.04, -length * 0.48);
+        registerPart(exhaust, 'exhaust', 1, { radius: 0.25 });
+      });
+
+      // 2. Four Realistic Wheels (front wheels detach on stage 2, rear wheels on stage 3)
+      const wheelZ = length * 0.33;
+      const wheelX = width * 0.54;
+      const wheelCoords = [
+        [-wheelX, wheelRadius, wheelZ, 2],
+        [wheelX, wheelRadius, wheelZ, 2],
+        [-wheelX, wheelRadius, -wheelZ, 3],
+        [wheelX, wheelRadius, -wheelZ, 3]
+      ];
+      wheelCoords.forEach(([wx, wy, wz, stage]) => {
+        const wMesh = createWheelMesh(wheelRadius, wheelWidth, spec.accent);
+        wMesh.position.set(wx, wy, wz);
+        registerPart(wMesh, 'wheel', stage, { radius: wheelRadius, restitution: 0.78, rollOnGround: true });
+        wheels.push(wMesh);
+
+        if (!isForklift) {
+          const arch = new THREE.Mesh(
+            new THREE.TorusGeometry(wheelRadius * 1.05, 0.17, 12, 20, Math.PI),
+            darkMat
+          );
+          arch.rotation.y = Math.PI / 2;
+          arch.position.set(wx * 0.86, wy + 0.08, wz);
+          registerPart(arch, 'bumper', 2, { radius: 0.45 });
+        }
+      });
+
+      if (isMonster) {
+        wheelCoords.forEach(([wx, wy, wz]) => {
+          const spring = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.25, 0.25, 1.15, 16),
+            createCarPaintMaterial(0xfacc15, 0.3, 0.2)
+          );
+          spring.position.set(wx * 0.76, wy + 0.62, wz);
+          registerPart(spring, 'special', 2, { radius: 0.45, restitution: 0.8 });
+        });
+      }
+
+      // 4. Engine Block + High-Speed Cooling Fan (detaches on stage 3)
+      const engineGroup = new THREE.Group();
+      const engBlock = createSmoothRoundedBox(1.22, 0.82, 1.12, 0.12, chromeMat);
+      engineGroup.add(engBlock);
+      const radiatorFan = createCoolingFanMesh(0.6, 0xef4444);
+      radiatorFan.position.set(0, 0.08, 0.62);
+      engineGroup.add(radiatorFan);
+      spinningFans.push(radiatorFan);
+      engineGroup.position.set(0, chassisY + 0.62, isLambo ? -length * 0.22 : length * 0.31);
+      registerPart(engineGroup, 'fan', 3, { radius: 0.7, alwaysSpin: true });
+
+      // 5. Sculpted Front Hood (detaches on stage 2)
+      const hoodProfile = isLambo
+        ? [[0, 0], [2.1, -0.32], [2.15, -0.08], [0, 0.28]]
+        : isSports
+        ? [[0, 0], [1.85, -0.22], [1.9, 0.05], [0, 0.32]]
+        : [[0, 0], [1.65, -0.12], [1.7, 0.18], [0, 0.36]];
+      const hood = createSculptedProfileMesh(hoodProfile, width * 0.92, 0.16, mainMat);
+      hood.position.set(0, chassisY + (isLambo ? 0.88 : 1.05), length * 0.31);
+      registerPart(hood, 'hood', 2, { radius: 0.6 });
+
+      const grille = createSmoothRoundedBox(width * 0.68, 0.46, 0.18, 0.06, darkMat);
+      grille.position.set(0, chassisY + 0.52, length * 0.49);
+      registerPart(grille, 'bumper', 1, { radius: 0.35 });
+
+      // 6. Front & Rear Bumpers + Headlights + Taillights (detach on first impact stage 1!)
+      const frontBumper = createSmoothRoundedBox(width * 1.05, 0.42, 0.46, 0.16, isSports ? mainMat : darkMat);
+      frontBumper.position.set(0, chassisY + 0.18, length * 0.5 + 0.12);
+      registerPart(frontBumper, 'bumper', 1, { radius: 0.45 });
+
+      const rearBumper = createSmoothRoundedBox(width * 1.05, 0.44, 0.44, 0.16, darkMat);
+      rearBumper.position.set(0, chassisY + 0.18, -length * 0.5 - 0.12);
+      registerPart(rearBumper, 'bumper', 1, { radius: 0.45 });
+
+      [-width * 0.34, width * 0.34].forEach((lx) => {
+        const hGroup = new THREE.Group();
+        const bezel = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.26, 0.18, 20), darkMat);
+        bezel.rotation.x = Math.PI / 2;
+        hGroup.add(bezel);
+        const lens = new THREE.Mesh(
+          new THREE.SphereGeometry(0.21, 16, 16),
+          new THREE.MeshStandardMaterial({ color: 0xfacc15, emissive: 0xfacc15, emissiveIntensity: 0.95 })
+        );
+        lens.position.z = 0.06;
+        hGroup.add(lens);
+        hGroup.position.set(lx, chassisY + 0.65, length * 0.5 + 0.06);
+        registerPart(hGroup, 'light', 1, { radius: 0.3 });
+
+        const tail = createSmoothRoundedBox(
+          0.52,
+          0.24,
+          0.16,
+          0.06,
+          new THREE.MeshStandardMaterial({ color: 0xef4444, emissive: 0xdc2626, emissiveIntensity: 0.85 })
+        );
+        tail.position.set(lx, chassisY + 0.68, -length * 0.5 - 0.04);
+        registerPart(tail, 'light', 1, { radius: 0.25 });
+      });
+
+      // 7. Cabin, Doors, Side Mirrors & Dark Smoked Glass
+      const cabinZ = isSports ? -0.08 : isBus ? 0 : length * 0.08;
+      const cabinH = isLambo ? 0.88 : isSports ? 1.02 : 1.5;
+      const cabinL = isBus ? length * 0.88 : isLambo ? 2.45 : 2.25;
+
+      [-1, 1].forEach((side) => {
+        const doorGroup = new THREE.Group();
+        const doorPanel = createSmoothRoundedBox(0.24, cabinH * 0.68, 1.55, 0.09, mainMat);
+        doorGroup.add(doorPanel);
+
+        if (isLambo) {
+          const scoop = createSmoothRoundedBox(0.28, 0.45, 0.65, 0.06, darkMat);
+          scoop.position.set(side * 0.06, -0.05, -0.45);
+          doorGroup.add(scoop);
+        }
+
+        const mirror = createSmoothRoundedBox(0.32, 0.2, 0.24, 0.08, accentMat);
+        mirror.position.set(side * 0.22, 0.36, 0.55);
+        doorGroup.add(mirror);
+
+        doorGroup.position.set(side * width * 0.47, chassisY + 0.66, cabinZ);
+        registerPart(doorGroup, 'door', 2, { radius: 0.55 });
+      });
+
+      const glassProfile = isLambo
+        ? [[-1.3, 0], [1.25, 0], [0.45, 0.66], [-0.85, 0.66]]
+        : isSports
+        ? [[-1.1, 0], [1.1, 0], [0.55, 0.76], [-0.75, 0.76]]
+        : isBus
+        ? [[-cabinL * 0.48, 0], [cabinL * 0.48, 0], [cabinL * 0.44, 1.05], [-cabinL * 0.46, 1.05]]
+        : [[-1.05, 0], [1.1, 0], [0.68, 0.92], [-0.88, 0.92]];
+      const greenhouse = createSculptedProfileMesh(glassProfile, width * 0.86, 0.14, glassMat);
+      greenhouse.position.set(0, chassisY + (isLambo ? 1.02 : 1.15), cabinZ);
+      registerPart(greenhouse, 'glass', 1, { radius: 0.65 });
+
+      const roof = createSmoothRoundedBox(width * 0.84, 0.22, cabinL * 0.76, 0.1, isBus ? accentMat : mainMat);
+      roof.position.set(0, chassisY + cabinH + 0.34, cabinZ - 0.08);
+      registerPart(roof, 'roof', 2, { radius: 0.65 });
+
+      // 8. VEHICLE-SPECIFIC UNIQUE PARTS & CARGO
+      if (isSports) {
+        const rearDeck = createSculptedProfileMesh(
+          [[-1.35, 0], [0.45, 0], [0.22, 0.65], [-1.3, 0.42]],
+          width * 0.94,
+          0.16,
+          mainMat
+        );
+        rearDeck.position.set(0, chassisY + 0.7, -length * 0.28);
+        registerPart(rearDeck, 'special', 2);
+
+        const wingGroup = new THREE.Group();
+        const wingBlade = createSmoothRoundedBox(width * 1.16, 0.14, 0.66, 0.05, isLambo ? darkMat : accentMat);
+        wingGroup.add(wingBlade);
+        [-0.68, 0.68].forEach((wx) => {
+          const strut = createSmoothRoundedBox(0.1, 0.46, 0.34, 0.03, accentMat);
+          strut.position.set(wx, -0.22, 0);
+          wingGroup.add(strut);
+        });
+        wingGroup.position.set(0, chassisY + 1.45, -length * 0.44);
+        gimmickPart = registerPart(wingGroup, 'special', 1);
+
+        [-0.62, 0.62].forEach((tx) => {
+          const turboFan = createCoolingFanMesh(0.5, 0xfacc15);
+          turboFan.position.set(tx, chassisY + 0.95, -length * 0.35);
+          registerPart(turboFan, 'fan', 2, { alwaysSpin: true });
+          spinningFans.push(turboFan);
+        });
+      }
+
+      if (spec.id === 'police') {
+        const lowerBlack = createSmoothRoundedBox(width * 0.98, 0.68, length * 0.92, 0.16, accentMat);
+        lowerBlack.position.set(0, chassisY + 0.46, 0);
+        registerPart(lowerBlack, 'special', 3);
+
+        const sirenGroup = new THREE.Group();
+        const redDome = createSmoothRoundedBox(
+          1.55,
+          0.3,
+          0.44,
+          0.1,
+          new THREE.MeshPhysicalMaterial({ color: 0xd90429, emissive: 0xdc2626, emissiveIntensity: 0.85 })
+        );
+        sirenGroup.add(redDome);
+        sirenGroup.position.set(0, chassisY + cabinH + 0.62, cabinZ);
+        gimmickPart = registerPart(sirenGroup, 'special', 1, { alwaysSpin: true });
+        spinningFans.push(sirenGroup);
+
+        for (let i = 0; i < 10; i++) {
+          const cone = new THREE.Mesh(
+            new THREE.ConeGeometry(0.34, 0.8, 16),
+            createCarPaintMaterial(0xea580c, 0.1, 0.25)
+          );
+          cone.position.set(((i % 3) - 1) * 0.65, chassisY + 0.65, -0.9 - Math.floor(i / 3) * 0.52);
+          registerPart(cone, 'cargo', 2, { restitution: 0.74, rollOnGround: true });
+        }
+      }
+
+      if (spec.id === 'ambulance') {
+        const boxBody = createSmoothRoundedBox(width * 0.98, 1.9, 3.2, 0.22, mainMat);
+        boxBody.position.set(0, chassisY + 1.08, -0.78);
+        registerPart(boxBody, 'special', 3, { radius: 0.95 });
+
+        const redStripe = createSmoothRoundedBox(width * 1.02, 0.36, 3.24, 0.08, accentMat);
+        redStripe.position.set(0, chassisY + 0.95, -0.78);
+        registerPart(redStripe, 'special', 2);
+
+        const siren = createSmoothRoundedBox(
+          1.4,
+          0.34,
+          0.45,
+          0.12,
+          new THREE.MeshStandardMaterial({ color: 0xd90429, emissive: 0xef4444, emissiveIntensity: 0.85 })
+        );
+        siren.position.set(0, chassisY + 2.18, 0.82);
+        gimmickPart = registerPart(siren, 'special', 1);
+
+        for (let i = 0; i < 10; i++) {
+          const med = createSmoothRoundedBox(0.56, 0.44, 0.56, 0.08, i % 2 === 0 ? accentMat : mainMat);
+          med.position.set(((i % 3) - 1) * 0.6, chassisY + 0.85, -0.4 - Math.floor(i / 3) * 0.55);
+          registerPart(med, 'cargo', 2, { restitution: 0.72, rollOnGround: true });
+        }
+      }
+
+      if (spec.id === 'firetruck') {
+        const tank = createSmoothRoundedBox(width * 0.96, 1.55, 2.9, 0.18, mainMat);
+        tank.position.set(0, chassisY + 0.92, -0.85);
+        registerPart(tank, 'special', 3);
+
+        const ladder = createSmoothRoundedBox(0.95, 0.32, 4.6, 0.08, chromeMat);
+        ladder.position.set(0, chassisY + 2.08, -0.35);
+        gimmickPart = registerPart(ladder, 'special', 1, { radius: 0.7 });
+
+        const waterCannon = createCoolingFanMesh(0.56, 0x0284c7);
+        waterCannon.position.set(0, chassisY + 2.48, 0.9);
+        registerPart(waterCannon, 'fan', 2, { alwaysSpin: true });
+        spinningFans.push(waterCannon);
+      }
+
+      if (spec.id === 'dumptruck') {
+        const dumpBed = createSculptedProfileMesh(
+          [[-1.6, 0], [1.5, 0], [1.75, 1.38], [-1.45, 1.15]],
+          width * 1.02,
+          0.16,
+          mainMat
+        );
+        dumpBed.position.set(0, chassisY + 0.95, -0.85);
+        gimmickPart = registerPart(dumpBed, 'special', 3, { radius: 0.95 });
+
+        for (let i = 0; i < 14; i++) {
+          const rock = new THREE.Mesh(
+            new THREE.DodecahedronGeometry(0.38 + (i % 3) * 0.09, 1),
+            new THREE.MeshStandardMaterial({ color: i % 2 === 0 ? 0x57534e : 0x78716c, roughness: 0.75, metalness: 0.1 })
+          );
+          rock.position.set(
+            ((i % 3) - 1) * 0.62,
+            chassisY + 1.42 + Math.floor(i / 6) * 0.45,
+            -0.2 - (i % 4) * 0.58
+          );
+          registerPart(rock, 'cargo', 2, { radius: 0.4, restitution: 0.7, rollOnGround: true });
+        }
+      }
+
+      if (spec.id === 'excavator') {
+        const boom1 = createSmoothRoundedBox(0.5, 2.3, 0.5, 0.1, mainMat);
+        boom1.position.set(0, chassisY + 1.9, -0.6);
+        boom1.rotation.x = 0.45;
+        gimmickPart = registerPart(boom1, 'special', 2);
+
+        const boom2 = createSmoothRoundedBox(0.44, 1.95, 0.44, 0.1, accentMat);
+        boom2.position.set(0, chassisY + 2.4, -1.75);
+        boom2.rotation.x = -0.55;
+        registerPart(boom2, 'special', 2);
+
+        const bucket = createSmoothRoundedBox(1.35, 0.9, 1.0, 0.14, darkMat);
+        bucket.position.set(0, chassisY + 1.35, -2.45);
+        registerPart(bucket, 'special', 1, { restitution: 0.65 });
+      }
+
+      if (spec.id === 'mixer') {
+        const drumGroup = new THREE.Group();
+        const drumBody = new THREE.Mesh(
+          new THREE.CylinderGeometry(1.02, 1.32, 2.2, 28),
+          mainMat
+        );
+        drumBody.rotation.x = Math.PI / 2 - 0.18;
+        drumGroup.add(drumBody);
+
+        const drumCone = new THREE.Mesh(
+          new THREE.SphereGeometry(1.31, 28, 20),
+          mainMat
+        );
+        drumCone.scale.set(1, 1, 0.85);
+        drumGroup.add(drumCone);
+
+        const stripe = new THREE.Mesh(
+          new THREE.TorusGeometry(1.26, 0.13, 16, 32),
+          createCarPaintMaterial(0xfacc15, 0.25, 0.2)
+        );
+        stripe.rotation.x = -0.18;
+        drumGroup.add(stripe);
+
+        drumGroup.position.set(0, chassisY + 1.48, -0.85);
+        gimmickPart = registerPart(drumGroup, 'fan', 3, { radius: 1.1, restitution: 0.72, rollOnGround: true, alwaysSpin: true });
+        spinningFans.push(drumGroup);
+
+        const cColors = [0x0284c7, 0xfacc15, 0xd90429, 0x7e22ce, 0x16a34a];
+        for (let i = 0; i < 18; i++) {
+          const ball = new THREE.Mesh(
+            new THREE.SphereGeometry(0.32, 16, 16),
+            createCarPaintMaterial(cColors[i % cColors.length], 0.2, 0.15)
+          );
+          ball.position.set(((i % 3) - 1) * 0.5, chassisY + 1.3, -0.25 - (i % 5) * 0.42);
+          registerPart(ball, 'cargo', 2, { radius: 0.32, restitution: 0.82, rollOnGround: true });
+        }
+      }
+
+      if (spec.id === 'garbage') {
+        const compactor = createSmoothRoundedBox(width * 0.98, 1.72, 3.15, 0.22, mainMat);
+        compactor.position.set(0, chassisY + 1.08, -0.8);
+        registerPart(compactor, 'special', 3);
+
+        const tailgate = createSmoothRoundedBox(width * 0.94, 1.6, 0.48, 0.14, accentMat);
+        tailgate.position.set(0, chassisY + 1.05, -2.45);
+        gimmickPart = registerPart(tailgate, 'door', 1);
+
+        const bagColors = [0xfacc15, 0xdb2777, 0x0284c7, 0x16a34a, 0xea580c];
+        for (let i = 0; i < 18; i++) {
+          const bag = new THREE.Mesh(
+            new THREE.SphereGeometry(0.36, 16, 16),
+            createCarPaintMaterial(bagColors[i % bagColors.length], 0.15, 0.25)
+          );
+          bag.scale.set(1, 1.2, 0.9);
+          bag.position.set(((i % 3) - 1) * 0.55, chassisY + 1.1 + (i % 2) * 0.4, -0.35 - (i % 5) * 0.42);
+          registerPart(bag, 'cargo', 2, { radius: 0.35, restitution: 0.76, rollOnGround: true });
+        }
+      }
+
+      if (spec.id === 'forklift') {
+        const mast = createSmoothRoundedBox(1.4, 2.55, 0.26, 0.06, darkMat);
+        mast.position.set(0, chassisY + 1.35, length * 0.52);
+        registerPart(mast, 'special', 2);
+
+        [-0.42, 0.42].forEach((fx) => {
+          const fork = createSmoothRoundedBox(0.22, 0.14, 1.48, 0.04, chromeMat);
+          fork.position.set(fx, chassisY + 0.55, length * 0.52 + 0.75);
+          gimmickPart = registerPart(fork, 'special', 1);
+        });
+
+        for (let i = 0; i < 10; i++) {
+          const box = createSmoothRoundedBox(
+            0.56,
+            0.52,
+            0.56,
+            0.08,
+            createCarPaintMaterial(i % 2 === 0 ? 0xd97706 : 0x0284c7, 0.2, 0.3)
+          );
+          box.position.set((i % 2 - 0.5) * 0.64, chassisY + 0.85 + Math.floor(i / 2) * 0.54, length * 0.52 + 0.75);
+          registerPart(box, 'cargo', 1, { radius: 0.4, restitution: 0.72, rollOnGround: true });
+        }
+      }
+
+      if (spec.id === 'bus') {
+        const lowerCoach = createSmoothRoundedBox(width * 0.98, 1.15, length * 0.94, 0.22, mainMat);
+        lowerCoach.position.set(0, chassisY + 0.65, 0);
+        registerPart(lowerCoach, 'special', 3);
+
+        [-1.5, 1.5].forEach((bz) => {
+          const acFan = createCoolingFanMesh(0.76, 0xfacc15);
+          acFan.rotation.x = Math.PI / 2;
+          acFan.position.set(0, chassisY + cabinH + 0.65, bz);
+          gimmickPart = registerPart(acFan, 'fan', 1, { alwaysSpin: true });
+          spinningFans.push(acFan);
+        });
+
+        for (let i = 0; i < 12; i++) {
+          const seat = createSmoothRoundedBox(
+            0.55,
+            0.65,
+            0.45,
+            0.08,
+            createCarPaintMaterial(i % 2 === 0 ? 0xd90429 : 0x16a34a, 0.2, 0.3)
+          );
+          seat.position.set((i % 2 - 0.5) * 1.1, chassisY + 0.75, -2.1 + Math.floor(i / 2) * 0.85);
+          registerPart(seat, 'cargo', 2, { restitution: 0.7 });
+        }
+      }
+
+      if (spec.id === 'keitruck') {
+        const bedFloor = createSmoothRoundedBox(width * 0.96, 0.48, 2.75, 0.12, mainMat);
+        bedFloor.position.set(0, chassisY + 0.42, -0.85);
+        gimmickPart = registerPart(bedFloor, 'special', 3);
+
+        for (let i = 0; i < 18; i++) {
+          const isRedSlice = i % 3 === 0;
+          const melon = new THREE.Mesh(
+            new THREE.SphereGeometry(0.36, 20, 20),
+            createCarPaintMaterial(isRedSlice ? 0xd90429 : 0x15803d, 0.15, 0.18)
+          );
+          melon.position.set(
+            ((i % 3) - 1) * 0.62,
+            chassisY + 0.82 + Math.floor(i / 6) * 0.54,
+            -0.15 - (i % 5) * 0.48
+          );
+          registerPart(melon, 'cargo', 1, { radius: 0.36, restitution: 0.8, rollOnGround: true });
+        }
+      }
+
+      if (spec.id === 'monster') {
+        const blower = createSmoothRoundedBox(1.1, 0.55, 1.2, 0.12, chromeMat);
+        blower.position.set(0, chassisY + 1.38, length * 0.24);
+        gimmickPart = registerPart(blower, 'special', 2);
+
+        [-0.65, 0.65].forEach((fx) => {
+          const superFan = createCoolingFanMesh(0.68, 0xfacc15);
+          superFan.position.set(fx, chassisY + 1.65, length * 0.22);
+          registerPart(superFan, 'fan', 2, { alwaysSpin: true });
+          spinningFans.push(superFan);
+        });
+      }
+
+      return { rootGroup, squashGroup, parts, spinningFans, wheels, wheelRadius, gimmickPart };
+    }
+
+    // =========================================================================
+    // 6. THREE.JS SCENE, DARK ASPHALT ROAD & RICH STADIUM WORLD
+    // =========================================================================
+    const container = document.getElementById('canvas-container');
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0284c7);
+    scene.fog = new THREE.FogExp2(0x0369a1, 0.00022);
+
+    const camera = new THREE.PerspectiveCamera(54, window.innerWidth / window.innerHeight, 0.5, 3400);
+    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 0.94;
+    renderer.outputEncoding = THREE.sRGBEncoding;
+    container.appendChild(renderer.domElement);
+
+    scene.environment = createAutomotiveEnvMap(renderer);
+
+    const hemiLight = new THREE.HemisphereLight(0xe0f2fe, 0x0f172a, 0.45);
+    scene.add(hemiLight);
+
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1.05);
+    dirLight.position.set(160, 320, 420);
+    dirLight.castShadow = true;
+    dirLight.shadow.mapSize.width = 2048;
+    dirLight.shadow.mapSize.height = 2048;
+    dirLight.shadow.camera.near = 20;
+    dirLight.shadow.camera.far = 1400;
+    const d = 550;
+    dirLight.shadow.camera.left = -d;
+    dirLight.shadow.camera.right = d;
+    dirLight.shadow.camera.top = d;
+    dirLight.shadow.camera.bottom = -d;
+    scene.add(dirLight);
+
+    const carKeyLight = new THREE.PointLight(0xffffff, 0.55, 45);
+    scene.add(carKeyLight);
+
+    const worldGroup = new THREE.Group();
+    scene.add(worldGroup);
+
+    let targetGroup = new THREE.Group();
+    let poolGroup = new THREE.Group();
+    let tntGroup = new THREE.Group();
+    let skyRingsGroup = new THREE.Group();
+    let shadowIndicator = null;
+    const envWindmills = [];
+
+    function buildSkiJumpWorld() {
+      const groundGeo = new THREE.PlaneGeometry(2400, 2800);
+      groundGeo.rotateX(-Math.PI / 2);
+      const groundMat = new THREE.MeshStandardMaterial({ color: 0x14532d, roughness: 0.92 });
+      const ground = new THREE.Mesh(groundGeo, groundMat);
+      ground.position.set(0, 0, 900);
+      ground.receiveShadow = true;
+      worldGroup.add(ground);
+
+      const stripGeo = new THREE.PlaneGeometry(56, 1100);
+      stripGeo.rotateX(-Math.PI / 2);
+      const stripMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.85 });
+      const strip = new THREE.Mesh(stripGeo, stripMat);
+      strip.position.set(0, 0.05, RAMP_END_Z + 520);
+      strip.receiveShadow = true;
+      worldGroup.add(strip);
+
+      for (let dist = 50; dist <= 800; dist += 50) {
+        const line = new THREE.Mesh(
+          new THREE.PlaneGeometry(50, 1.2),
+          new THREE.MeshBasicMaterial({ color: dist % 100 === 0 ? 0xfacc15 : 0x94a3b8, side: THREE.DoubleSide })
+        );
+        line.rotation.x = -Math.PI / 2;
+        line.position.set(0, 0.1, RAMP_END_Z + dist);
+        worldGroup.add(line);
+      }
+
+      const rampWidth = 15.0;
+      const steps = 120;
+      for (let i = 0; i < steps; i++) {
+        const z1 = (i / steps) * RAMP_END_Z;
+        const z2 = ((i + 1) / steps) * RAMP_END_Z;
+        const zMid = (z1 + z2) * 0.5;
+        const y1 = getRampHeight(z1);
+        const y2 = getRampHeight(z2);
+        const yMid = (y1 + y2) * 0.5;
+        const segLen = Math.hypot(z2 - z1, y2 - y1) + 0.2;
+        const pitch = Math.atan2(y2 - y1, z2 - z1);
+
+        const isTakeoffZone = zMid >= TAKEOFF_ZONE_START_Z;
+        const segColor = isTakeoffZone
+          ? (i % 2 === 0 ? 0x1e293b : 0x0f172a)
+          : (i % 2 === 0 ? 0x18181b : 0x232329);
+
+        const seg = new THREE.Mesh(
+          new THREE.BoxGeometry(rampWidth, 1.4, segLen),
+          new THREE.MeshStandardMaterial({ color: segColor, roughness: 0.78 })
+        );
+        seg.position.set(0, yMid - 0.7, zMid);
+        seg.rotation.x = -pitch;
+        seg.receiveShadow = true;
+        seg.castShadow = true;
+        worldGroup.add(seg);
+
+        if (i % 2 === 0) {
+          const centerStripe = new THREE.Mesh(
+            new THREE.BoxGeometry(isTakeoffZone ? 1.4 : 0.45, 0.08, segLen * 0.75),
+            new THREE.MeshBasicMaterial({ color: isTakeoffZone ? 0xf97316 : 0xfacc15 })
+          );
+          centerStripe.position.set(0, yMid + 0.03, zMid);
+          centerStripe.rotation.x = -pitch;
+          worldGroup.add(centerStripe);
+        }
+
+        [-rampWidth * 0.52, rampWidth * 0.52].forEach((rx) => {
+          const curbColor = isTakeoffZone
+            ? (i % 2 === 0 ? 0xfacc15 : 0xf97316)
+            : (i % 2 === 0 ? 0xd90429 : 0xf8fafc);
+          const rail = new THREE.Mesh(
+            new THREE.BoxGeometry(0.65, 0.52, segLen),
+            new THREE.MeshStandardMaterial({ color: curbColor, roughness: 0.4 })
+          );
+          rail.position.set(rx, yMid + 0.1, zMid);
+          rail.rotation.x = -pitch;
+          worldGroup.add(rail);
+        });
+      }
+
+      [15, 85, 160, 235, 310, 365, 415].forEach((pz) => {
+        const py = getRampHeight(pz);
+        const pillar = new THREE.Mesh(
+          new THREE.CylinderGeometry(1.8, 2.8, py, 16),
+          new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.5, metalness: 0.4 })
+        );
+        pillar.position.set(0, py * 0.5, pz);
+        pillar.castShadow = true;
+        worldGroup.add(pillar);
+      });
+
+      [60, 130, 200, 270, 340, 405].forEach((fz, idx) => {
+        const fy = getRampHeight(fz);
+        [-18, 18].forEach((fx, sideIdx) => {
+          const pole = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.35, 0.35, 9, 12),
+            new THREE.MeshStandardMaterial({ color: 0x475569 })
+          );
+          pole.position.set(fx, fy + 2, fz);
+          worldGroup.add(pole);
+
+          const bigFan = createCoolingFanMesh(3.2, (idx + sideIdx) % 2 === 0 ? 0xd90429 : 0xfacc15);
+          bigFan.position.set(fx, fy + 6.5, fz);
+          worldGroup.add(bigFan);
+          envWindmills.push(bigFan);
+        });
+      });
+
+      for (let i = 0; i < 20; i++) {
+        const cloud = new THREE.Group();
+        const cMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.9 });
+        for (let j = 0; j < 4; j++) {
+          const puff = new THREE.Mesh(new THREE.SphereGeometry(6 + (j % 2) * 3, 14, 14), cMat);
+          puff.position.set(j * 5 - 7, (j % 2) * 2, (j % 3) * 2);
+          cloud.add(puff);
+        }
+        const side = i % 2 === 0 ? 1 : -1;
+        cloud.position.set(
+          side * (95 + Math.random() * 180),
+          115 + Math.random() * 110,
+          80 + Math.random() * 950
+        );
+        worldGroup.add(cloud);
+      }
+
+      const shadowGeo = new THREE.RingGeometry(1.8, 3.2, 28);
+      shadowGeo.rotateX(-Math.PI / 2);
+      shadowIndicator = new THREE.Mesh(
+        shadowGeo,
+        new THREE.MeshBasicMaterial({ color: 0xfacc15, side: THREE.DoubleSide })
+      );
+      shadowIndicator.position.set(0, 0.25, 10);
+      scene.add(shadowIndicator);
+
+      worldGroup.add(targetGroup);
+      worldGroup.add(tntGroup);
+      worldGroup.add(poolGroup);
+      worldGroup.add(skyRingsGroup);
+      updateTargetZonePosition(450);
+    }
+
+    function updateTargetZonePosition(courseDist) {
+      const targetZ = RAMP_END_Z + courseDist;
+
+      while (targetGroup.children.length) targetGroup.remove(targetGroup.children[0]);
+      const rings = [
+        { r: 28, color: 0x1d4ed8, y: 0.1 },
+        { r: 19, color: 0xf8fafc, y: 0.14 },
+        { r: 12, color: 0xd90429, y: 0.18 },
+        { r: 6.5, color: 0xfacc15, y: 0.22 }
+      ];
+      rings.forEach((rg) => {
+        const disc = new THREE.Mesh(
+          new THREE.CylinderGeometry(rg.r, rg.r, 0.18, 44),
+          new THREE.MeshStandardMaterial({ color: rg.color, roughness: 0.45 })
+        );
+        disc.position.set(0, rg.y, 0);
+        disc.receiveShadow = true;
+        targetGroup.add(disc);
+      });
+
+      [[-32, -10], [32, -10], [-32, 10], [32, 10]].forEach(([bx, bz]) => {
+        const bumper = new THREE.Mesh(
+          new THREE.CylinderGeometry(3.0, 3.0, 5.5, 20),
+          createCarPaintMaterial(0xdb2777, 0.25, 0.2)
+        );
+        bumper.position.set(bx, 2.75, bz);
+        targetGroup.add(bumper);
+      });
+      targetGroup.position.set(0, 0, targetZ);
+
+      while (tntGroup.children.length) tntGroup.remove(tntGroup.children[0]);
+      for (let i = -4; i <= 4; i++) {
+        const barrel = new THREE.Mesh(
+          new THREE.CylinderGeometry(1.4, 1.4, 3.0, 18),
+          createCarPaintMaterial(0xb91c1c, 0.25, 0.25)
+        );
+        barrel.position.set(i * 4.5, 1.5, 0);
+        tntGroup.add(barrel);
+      }
+      tntGroup.position.set(0, 0, targetZ - 52);
+
+      while (poolGroup.children.length) poolGroup.remove(poolGroup.children[0]);
+      const waterMesh = new THREE.Mesh(
+        new THREE.BoxGeometry(58, 0.5, 52),
+        new THREE.MeshPhysicalMaterial({ color: 0x0284c7, roughness: 0.1, metalness: 0.1, clearcoat: 0.9 })
+      );
+      waterMesh.position.set(0, 0.25, 0);
+      poolGroup.add(waterMesh);
+
+      const poolRim = new THREE.Mesh(
+        new THREE.BoxGeometry(62, 0.9, 56),
+        new THREE.MeshStandardMaterial({ color: 0xfacc15, roughness: 0.5 })
+      );
+      poolRim.position.set(0, 0.08, 0);
+      poolGroup.add(poolRim);
+      poolGroup.position.set(0, 0, targetZ + 68);
+
+      while (skyRingsGroup.children.length) skyRingsGroup.remove(skyRingsGroup.children[0]);
+      const ringCount = 4;
+      for (let i = 1; i <= ringCount; i++) {
+        const frac = i / (ringCount + 1);
+        const rz = RAMP_END_Z + courseDist * frac;
+        const arcH = 34 + Math.sin(frac * Math.PI) * 68;
+        const skyRing = new THREE.Mesh(
+          new THREE.TorusGeometry(9.5, 0.65, 16, 36),
+          new THREE.MeshStandardMaterial({
+            color: i % 2 === 0 ? 0xfacc15 : 0xf97316,
+            emissive: i % 2 === 0 ? 0xd97706 : 0xea580c,
+            emissiveIntensity: 0.35
+          })
+        );
+        skyRing.position.set(0, arcH, rz);
+        skyRingsGroup.add(skyRing);
+      }
+    }
+
+    // =========================================================================
+    // 7. 3D PARTICLE SYSTEM
+    // =========================================================================
+    const particles = [];
+
+    function spawnParticles(pos, count, preset) {
+      for (let i = 0; i < count; i++) {
+        let geo, color, size, speed, gravity, life;
+        if (preset === 'fire') {
+          size = 0.24 + Math.random() * 0.28;
+          geo = new THREE.SphereGeometry(size, 8, 8);
+          color = Math.random() > 0.4 ? 0xea580c : 0xfacc15;
+          speed = 7 + Math.random() * 12;
+          gravity = -10;
+          life = 0.4 + Math.random() * 0.3;
+        } else if (preset === 'smoke') {
+          size = 0.65 + Math.random() * 0.9;
+          geo = new THREE.SphereGeometry(size, 10, 10);
+          color = 0x1e293b;
+          speed = 5 + Math.random() * 10;
+          gravity = 3.5;
+          life = 1.0 + Math.random() * 0.7;
+        } else if (preset === 'water') {
+          size = 0.42 + Math.random() * 0.55;
+          geo = new THREE.SphereGeometry(size, 10, 10);
+          color = Math.random() > 0.35 ? 0x0284c7 : 0xf8fafc;
+          speed = 15 + Math.random() * 22;
+          gravity = -30;
+          life = 0.95 + Math.random() * 0.5;
+        } else if (preset === 'confetti') {
+          geo = new THREE.BoxGeometry(0.52, 0.14, 0.52);
+          const cols = [0xd90429, 0xfacc15, 0x16a34a, 0x0284c7, 0x9333ea];
+          color = cols[i % cols.length];
+          speed = 14 + Math.random() * 20;
+          gravity = -14;
+          life = 1.6 + Math.random() * 0.8;
+        } else {
+          size = 0.22 + Math.random() * 0.25;
+          geo = new THREE.BoxGeometry(size, size, size);
+          color = Math.random() > 0.5 ? 0xfacc15 : 0xea580c;
+          speed = 9 + Math.random() * 20;
+          gravity = -28;
+          life = 0.55 + Math.random() * 0.45;
+        }
+
+        const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.3 });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.copy(pos);
+        const angle = Math.random() * Math.PI * 2;
+        const upBias = preset === 'water' || preset === 'confetti' ? 0.85 : 0.4;
+        const vel = new THREE.Vector3(
+          Math.cos(angle) * speed * (0.4 + Math.random() * 0.6),
+          speed * (upBias + Math.random() * 0.5),
+          Math.sin(angle) * speed * (0.4 + Math.random() * 0.6)
+        );
+        scene.add(mesh);
+        particles.push({ mesh, vel, gravity, life, maxLife: life });
+      }
+    }
+
+    function updateParticles(dt) {
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.life -= dt;
+        if (p.life <= 0) {
+          scene.remove(p.mesh);
+          particles.splice(i, 1);
+          continue;
+        }
+        p.vel.y += p.gravity * dt;
+        p.mesh.position.addScaledVector(p.vel, dt);
+        p.mesh.rotation.x += dt * 6;
+        p.mesh.rotation.y += dt * 5;
+        if (p.mesh.position.y < 0.2) {
+          p.mesh.position.y = 0.2;
+          p.vel.y *= -0.5;
+          p.vel.x *= 0.82;
+          p.vel.z *= 0.82;
+        }
+        const scale = Math.max(0.05, p.life / p.maxLife);
+        p.mesh.scale.setScalar(scale);
+      }
+    }
+
+    // =========================================================================
+    // 8. GAME STATE, REALISTIC MOMENTUM CRASH ENGINE & PHASE 3 FOCUS CAMERA
+    // =========================================================================
+    const STATE = {
+      TITLE: 'TITLE',
+      RUN: 'RUN',
+      FLIGHT: 'FLIGHT',
+      LANDED: 'LANDED',
+      CRASHED: 'CRASHED',
+      PAUSED: 'PAUSED'
+    };
+
+    let currentState = STATE.TITLE;
+    let prevStateBeforePause = STATE.TITLE;
+    let selectedCarIndex = 0;
+    let selectedCourseDist = 450;
+
+    let activeCar = null;
+    let carPos = new THREE.Vector3(0, 175, 10);
+    let carVel = new THREE.Vector3(0, 0, 0);
+    let carAngVel = new THREE.Vector3(0, 0, 0);
+    let carPitch = 0;
+    let carRoll = 0;
+    let carSpeed = 0;
+    let airBoostCount = 0;
+    let flightElapsed = 0;
+    let gimmickAnimTimer = 0;
+    let jumpQueuedPerfect = false;
+
+    let isAccelerating = false;
+    let pitchInput = 0;
+
+    let camYaw = 0.42;
+    let camElevation = 0.34;
+    let camDist = 17.5;
+    let crashCameraFocus = 'chassis'; // 'chassis' | 'wheel' | 'fan'
+    let isDraggingCamera = false;
+    let lastPointerX = 0;
+    let lastPointerY = 0;
+
+    let activeCrashMode = null;
+    let crashTimer = 0;
+    let slowMoFactor = 1.0;
+    let forceSlowMo = false;
+    let screenShake = 0;
+    let squashProgress = 0;
+    let tumbleBounceCount = 0;
+    let scatterStage = 0;
+    let detachedPartsCount = 0;
+    let maxWheelFlyDist = 0;
+
+    function setCameraPreset(presetName) {
+      document.querySelectorAll('.cam-preset-btn').forEach((b) => {
+        b.className = 'cam-preset-btn toy-btn bg-slate-800 hover:bg-slate-700 text-white font-black px-2 py-1 rounded-xl text-xs border border-white/20';
+      });
+      const activeId = `cam-preset-${presetName}`;
+      const activeBtn = document.getElementById(activeId);
+      if (activeBtn) {
+        activeBtn.className = 'cam-preset-btn toy-btn bg-sky-400 text-slate-950 font-black px-2 py-1 rounded-xl text-xs border-2 border-white shadow';
+      }
+
+      if (presetName === 'back') {
+        camYaw = 0.0;
+        camElevation = 0.34;
+        camDist = 17.2;
+      } else if (presetName === 'diag') {
+        camYaw = 0.52;
+        camElevation = 0.34;
+        camDist = 17.5;
+      } else if (presetName === 'side') {
+        camYaw = Math.PI * 0.48;
+        camElevation = 0.24;
+        camDist = 20.5;
+      } else if (presetName === 'front') {
+        camYaw = Math.PI * 0.88;
+        camElevation = 0.28;
+        camDist = 17.0;
+      } else if (presetName === 'closeup') {
+        camYaw = 0.45;
+        camElevation = 0.26;
+        camDist = 11.2;
+      }
+    }
+
+    function getCrashFocusPosition() {
+      if (currentState === STATE.CRASHED && activeCar && crashCameraFocus !== 'chassis') {
+        const candidate = activeCar.parts.find((p) => p.detached && p.partType === crashCameraFocus);
+        if (candidate && candidate.mesh) {
+          return candidate.mesh.position;
+        }
+      }
+      return carPos;
+    }
+
+    function updateCameraFollow(rawDt) {
+      if (!activeCar) return;
+
+      if ((currentState === STATE.TITLE || currentState === STATE.CRASHED || currentState === STATE.LANDED) && !isDraggingCamera) {
+        camYaw += rawDt * (currentState === STATE.TITLE ? 0.35 : 0.22);
+      }
+
+      const focusPos = getCrashFocusPosition();
+      const horizDist = camDist * Math.cos(camElevation);
+      const vertOffset = camDist * Math.sin(camElevation);
+
+      const offsetX = Math.sin(camYaw) * horizDist;
+      const offsetZ = -Math.cos(camYaw) * horizDist;
+
+      const desiredX = focusPos.x + offsetX;
+      const desiredZ = focusPos.z + offsetZ;
+      let desiredY = focusPos.y + 2.6 + vertOffset;
+
+      if (desiredZ >= 0 && desiredZ <= RAMP_END_Z + 12) {
+        const rampFloorY = getRampHeight(desiredZ);
+        desiredY = Math.max(desiredY, rampFloorY + 4.2);
+      } else {
+        desiredY = Math.max(desiredY, 3.2);
+      }
+
+      const shakeX = (Math.random() - 0.5) * screenShake;
+      const shakeY = (Math.random() - 0.5) * screenShake;
+
+      camera.position.set(desiredX + shakeX, desiredY + shakeY, desiredZ);
+
+      const lookY = currentState === STATE.TITLE ? focusPos.y + 0.5 : focusPos.y + 1.25;
+      const lookZ = currentState === STATE.RUN || currentState === STATE.FLIGHT ? focusPos.z + 2.2 : focusPos.z;
+      camera.lookAt(focusPos.x, lookY, lookZ);
+
+      carKeyLight.position.set(camera.position.x, camera.position.y + 6, camera.position.z);
+    }
+
+    function spawnSelectedVehicle() {
+      if (activeCar) {
+        scene.remove(activeCar.rootGroup);
+        activeCar.parts.forEach((p) => {
+          if (p.detached) scene.remove(p.mesh);
+        });
+      }
+      const spec = VEHICLES[selectedCarIndex];
+      activeCar = buildVehicle3D(spec);
+      scene.add(activeCar.rootGroup);
+
+      carPos.set(0, getRampHeight(10), 10);
+      carVel.set(0, 0, 0);
+      carAngVel.set(0, 0, 0);
+      carPitch = getRampPitchAngle(10);
+      carRoll = 0;
+      carSpeed = 0;
+      airBoostCount = 0;
+      flightElapsed = 0;
+      gimmickAnimTimer = 0;
+      jumpQueuedPerfect = false;
+      activeCrashMode = null;
+      crashCameraFocus = 'chassis';
+      crashTimer = 0;
+      slowMoFactor = forceSlowMo ? 0.28 : 1.0;
+      squashProgress = 0;
+      tumbleBounceCount = 0;
+      scatterStage = 0;
+      detachedPartsCount = 0;
+      maxWheelFlyDist = 0;
+
+      activeCar.rootGroup.position.copy(carPos);
+      activeCar.rootGroup.rotation.set(currentState === STATE.TITLE ? 0 : -carPitch, 0, 0);
+      activeCar.squashGroup.scale.set(1, 1, 1);
+
+      document.getElementById('hud-car-icon').textContent = spec.icon;
+      document.getElementById('hud-car-name').textContent = spec.name;
+      const distName = selectedCourseDist === 320 ? 'ちかい' : selectedCourseDist === 450 ? 'ふつう' : 'とおい';
+      document.getElementById('hud-course-label').textContent = `🎯 まと：${selectedCourseDist}m（${distName}）`;
+      document.getElementById('selected-car-spec').textContent = `${spec.gimmickDesc}`;
+      document.getElementById('boost-label').textContent = `${spec.boostLabel} (あと3かい)`;
+      document.getElementById('crash-focus-bar').classList.add('hidden');
+    }
+
+    function showBanner(text, durationMs = 1400) {
+      const banner = document.getElementById('floating-banner');
+      const bannerText = document.getElementById('floating-banner-text');
+      bannerText.textContent = text;
+      banner.classList.remove('hidden');
+      clearTimeout(showBanner._timer);
+      showBanner._timer = setTimeout(() => {
+        banner.classList.add('hidden');
+      }, durationMs);
+    }
+
+    function triggerFlash(colorClass = 'bg-white') {
+      const fl = document.getElementById('impact-flash');
+      fl.className = `fixed inset-0 pointer-events-none z-20 transition-opacity duration-150 ${colorClass}`;
+      fl.style.opacity = '0.5';
+      setTimeout(() => {
+        fl.style.opacity = '0';
+      }, 100);
+    }
+
+    // Realistic Forward-Momentum Part Detachment!
+    // Detached parts inherit the car's forward velocity (`carVel.z * 0.78`) and rotational inertia
+    // instead of popping outward like a stationary firework!
+    function detachVehicleParts(stageFilterFn, explosionCenter, powerMul = 1.0, charBlack = false) {
+      if (!activeCar) return;
+      activeCar.rootGroup.updateMatrixWorld(true);
+
+      activeCar.parts.forEach((p) => {
+        if (p.detached || p.partType === 'chassis') return;
+        if (stageFilterFn && !stageFilterFn(p)) return;
+
+        const worldPos = new THREE.Vector3();
+        const worldQuat = new THREE.Quaternion();
+        p.mesh.getWorldPosition(worldPos);
+        p.mesh.getWorldQuaternion(worldQuat);
+
+        activeCar.squashGroup.remove(p.mesh);
+        p.mesh.position.copy(worldPos);
+        p.mesh.quaternion.copy(worldQuat);
+        scene.add(p.mesh);
+        p.detached = true;
+        detachedPartsCount++;
+
+        if (charBlack && p.partType !== 'fan') {
+          p.mesh.traverse((child) => {
+            if (child.isMesh && child.material) {
+              child.material = child.material.clone();
+              child.material.color.setHex(0x18181b);
+              child.material.roughness = 0.92;
+            }
+          });
+        }
+
+        const localOffset = worldPos.clone().sub(explosionCenter);
+        if (localOffset.lengthSq() < 0.01) {
+          localOffset.set((Math.random() - 0.5) * 2, 0.5, (Math.random() - 0.5) * 2);
+        }
+        const outwardDir = localOffset.clone().normalize();
+
+        const lateralSpread = (6 + Math.random() * 11) * powerMul;
+        const upPop = (6 + Math.random() * 11) * powerMul;
+        const forwardCarry = Math.max(18, carVel.z * 0.78) + (Math.random() - 0.2) * 14 * powerMul;
+
+        p.vel.set(
+          carVel.x * 0.65 + outwardDir.x * lateralSpread + (Math.random() - 0.5) * 8,
+          Math.abs(outwardDir.y) * upPop + 5 * powerMul,
+          forwardCarry
+        );
+
+        if (p.partType === 'wheel') {
+          p.vel.z = Math.max(p.vel.z, 26 + Math.random() * 18);
+          p.vel.y = Math.max(p.vel.y, 8 + Math.random() * 8);
+          p.angVel.set(22 + Math.random() * 12, (Math.random() - 0.5) * 3, 0);
+        } else {
+          p.angVel.set(
+            carAngVel.x * 0.6 + (Math.random() - 0.5) * 12,
+            carAngVel.y * 0.6 + (Math.random() - 0.5) * 12,
+            carAngVel.z * 0.6 + (Math.random() - 0.5) * 12
+          );
+        }
+      });
+    }
+
+    // Master Realistic 6-Mode Crash Trigger (ゴロゴロ tumble is now ~68% default probability!)
+    function triggerCrash(forcedMode = null) {
+      if (!activeCar) return;
+      currentState = STATE.CRASHED;
+      crashTimer = 0;
+      slowMoFactor = 0.34;
+      screenShake = 1.25;
+      tumbleBounceCount = 1;
+      scatterStage = 1;
+      squashProgress = 0;
+
+      const targetZ = RAMP_END_Z + selectedCourseDist;
+      const zFromTarget = carPos.z - targetZ;
+
+      let mode = forcedMode;
+      if (!mode) {
+        if (Math.abs(zFromTarget - 68) < 28) {
+          mode = 'water';
+        } else if (Math.abs(zFromTarget + 52) < 20) {
+          mode = 'explode';
+        } else if (Math.random() < 0.68) {
+          // 68% chance of realistic ゴロゴロ大回転バラバラクラッシュ (tumble)!
+          mode = 'tumble';
+        } else if (Math.abs(carPitch) > 0.75) {
+          mode = 'squash';
+        } else {
+          mode = 'scatter';
+        }
+      }
+
+      activeCrashMode = mode;
+      sound.playCrash(mode);
+
+      document.getElementById('hud-controls').classList.add('hidden');
+      document.getElementById('crash-mode-badge').textContent = CRASH_NAMES[mode];
+      document.getElementById('crash-mode-badge').classList.remove('hidden');
+      document.getElementById('crash-focus-bar').classList.remove('hidden');
+
+      showBanner(CRASH_NAMES[mode], 2200);
+
+      // Preserve forward momentum in ALL crash modes so the car never stops unnaturally!
+      const forwardSpeed = Math.max(30, carVel.z * 0.82);
+
+      if (mode === 'tumble') {
+        // ① ゴロゴロ大回転: Heavy forward barrel-roll & pitch tumble, shedding parts on every bounce!
+        triggerFlash('bg-sky-300');
+        spawnComicPopup('ゴロゴロ大回転！！🌪️', 'text-sky-300', 50, 38);
+        carVel.set((Math.random() - 0.5) * 8, 16.5, forwardSpeed);
+        carAngVel.set(-8.5, (Math.random() - 0.5) * 4.5, (Math.random() > 0.5 ? 1 : -1) * 7.2);
+        spawnParticles(carPos, 32, 'sparks');
+        detachVehicleParts((p) => p.releaseStage === 1, carPos, 0.95, false);
+      } else if (mode === 'scatter') {
+        // ② 高速スリップ大分解: High-speed forward skid tearing parts off progressively from front to back!
+        triggerFlash('bg-orange-400');
+        spawnComicPopup('ガシャーーーン！！💥', 'text-yellow-300', 50, 38);
+        carVel.set((Math.random() - 0.5) * 6, 11.5, forwardSpeed * 1.05);
+        carAngVel.set(-4.5, (Math.random() - 0.5) * 6.5, (Math.random() - 0.5) * 5.5);
+        spawnParticles(carPos, 45, 'sparks');
+        spawnParticles(carPos, 18, 'smoke');
+        detachVehicleParts((p) => p.releaseStage === 1, carPos, 1.1, false);
+      } else if (mode === 'squash') {
+        // ③ フロント激突・前転: Front nose crumples on impact while rear kicks over into a forward flip!
+        triggerFlash('bg-yellow-300');
+        spawnComicPopup('グシャッ！！前転クラッシュ！💥', 'text-amber-300', 50, 38);
+        squashProgress = 0.01;
+        carVel.set((Math.random() - 0.5) * 6, 18.0, forwardSpeed * 0.78);
+        carAngVel.set(-10.5, (Math.random() - 0.5) * 3.0, (Math.random() - 0.5) * 3.5);
+        spawnParticles(carPos, 42, 'sparks');
+        detachVehicleParts((p) => p.releaseStage <= 2, carPos, 1.15, false);
+      } else if (mode === 'explode') {
+        // ④ 大爆発＆黒焦げ横転: Blast launches blackened frame into a high tumbling arc trailing smoke & fire!
+        triggerFlash('bg-rose-500');
+        spawnComicPopup('ドッカーーーン！！🔥', 'text-rose-400', 50, 36);
+        spawnParticles(carPos, 75, 'fire');
+        spawnParticles(carPos, 45, 'smoke');
+        carVel.set((Math.random() - 0.5) * 12, 24.0, forwardSpeed * 0.85);
+        carAngVel.set(-9.0, 5.5, 8.0);
+        detachVehicleParts((p) => p.releaseStage <= 2, carPos.clone().add(new THREE.Vector3(0, -1.2, 0)), 1.4, true);
+      } else if (mode === 'pinball') {
+        // ⑤ 高速きりもみスピン: Violent flat-spin + barrel roll across the asphalt flinging parts by centrifugal force!
+        triggerFlash('bg-fuchsia-400');
+        spawnComicPopup('ギュルルルッ！！大スピン！🌪️', 'text-fuchsia-300', 50, 38);
+        spawnParticles(carPos, 45, 'sparks');
+        carVel.set((Math.random() > 0.5 ? 1 : -1) * 16, 14.0, forwardSpeed * 0.9);
+        carAngVel.set(-4.0, 16.5, 6.5);
+        detachVehicleParts((p) => p.releaseStage <= 2, carPos, 1.25, false);
+      } else if (mode === 'water') {
+        // ⑥ 水面スキップ・水没: Skips across the pool surface throwing water spray and shedding floating parts!
+        triggerFlash('bg-cyan-300');
+        spawnComicPopup('バシャーーーン！！💦', 'text-cyan-300', 50, 38);
+        const poolPos = new THREE.Vector3(carPos.x, 0.8, RAMP_END_Z + selectedCourseDist + 56);
+        carPos.copy(poolPos);
+        carVel.set(0, 9.5, 18.0);
+        carAngVel.set(-3.5, 2.0, 3.0);
+        activeCar.rootGroup.position.copy(carPos);
+        spawnParticles(poolPos, 80, 'water');
+        detachVehicleParts(() => true, poolPos, 1.0, false);
+      }
+
+      setTimeout(() => {
+        if (currentState === STATE.CRASHED) {
+          showResultCard(false);
+        }
+      }, 1850);
+    }
+
+    function showResultCard(isSuccess, landingScore = 0, distMeters = 0) {
+      const card = document.getElementById('screen-result');
+      const emoji = document.getElementById('result-emoji');
+      const badge = document.getElementById('result-badge');
+      const title = document.getElementById('result-title');
+      const detail = document.getElementById('result-detail');
+
+      if (isSuccess) {
+        updateHighScoreDisplay(landingScore);
+        emoji.textContent = landingScore === 100 ? '👑' : '🎉';
+        badge.textContent = landingScore === 100 ? '🌟 どまんなか 100てん！ 🌟' : '✨ ちゃくち せいこう！ ✨';
+        badge.className = 'inline-block text-xs font-black px-2.5 py-0.5 rounded-full bg-emerald-400 text-slate-950 mb-0.5';
+        title.textContent = landingScore === 100 ? 'すごすぎる！ピタッと神ちゃくち！' : 'やったね！きれいに ちゃくち！';
+        detail.textContent = `とんだ きょり：${distMeters}m（ひこう ${flightElapsed.toFixed(1)}びょう）／ ${landingScore}てん`;
+      } else {
+        const flyDist = Math.max(18, Math.round(maxWheelFlyDist));
+        const crashPowerScore = Math.min(99, detachedPartsCount * 3 + Math.round(flyDist * 0.45));
+        updateHighScoreDisplay(crashPowerScore);
+        emoji.textContent = '💥';
+        badge.textContent = CRASH_NAMES[activeCrashMode || 'tumble'];
+        badge.className = 'inline-block text-xs font-black px-2.5 py-0.5 rounded-full bg-rose-500 text-white mb-0.5';
+        title.textContent = 'ドッカーン！ドはでな だいクラッシュ！';
+        detail.textContent = `ぶっとびパーツ：${detachedPartsCount}こ ／ タイヤ転がり：${flyDist}m（ぶっとび点：${crashPowerScore}てん）🛞`;
+      }
+
+      card.classList.remove('hidden');
+    }
+
+    // =========================================================================
+    // 9. GAME FLOW CONTROLLERS
+    // =========================================================================
+    function startGameRun() {
+      sound.init();
+      document.getElementById('screen-title').classList.add('hidden');
+      document.getElementById('screen-result').classList.add('hidden');
+      document.getElementById('screen-pause').classList.add('hidden');
+      document.getElementById('screen-crash-picker').classList.add('hidden');
+      document.getElementById('crash-mode-badge').classList.add('hidden');
+      document.getElementById('crash-focus-bar').classList.add('hidden');
+
+      document.getElementById('hud-controls').classList.remove('hidden');
+      document.getElementById('controls-run').classList.remove('hidden');
+      document.getElementById('controls-flight').classList.add('hidden');
+      document.getElementById('gauge-label').textContent = '🔥 スピード';
+
+      currentState = STATE.RUN;
+      if (camDist < 15) camDist = 17.5;
+      if (Math.abs(camYaw) > 1.2) camYaw = 0.42;
+
+      spawnSelectedVehicle();
+      showBanner('🔥 ボタンを ながおし して ゴー！', 1600);
+    }
+
+    function executeJump(isPerfectRelease) {
+      if (currentState !== STATE.RUN) return;
+      currentState = STATE.FLIGHT;
+      isAccelerating = false;
+      flightElapsed = 0;
+
+      carPos.z = Math.max(carPos.z, RAMP_END_Z);
+      carPos.y = getRampHeight(RAMP_END_Z) + 0.5;
+
+      document.getElementById('controls-run').classList.add('hidden');
+      document.getElementById('controls-flight').classList.remove('hidden');
+
+      const spec = VEHICLES[selectedCarIndex];
+      const launchPitch = getRampPitchAngle(RAMP_END_Z);
+      const speedRatio = Math.max(0.58, carSpeed / spec.maxSpeed);
+
+      const vy0 = (28.5 + speedRatio * 3.2 + (isPerfectRelease ? 2.2 : 0)) * Math.sqrt(spec.gravityMul);
+      const estFlightTime = 10.0;
+      const targetReachZ = selectedCourseDist * (0.72 + speedRatio * 0.32) * (isPerfectRelease ? 1.04 : 0.94);
+      const vz0 = targetReachZ / estFlightTime;
+
+      carVel.set(0, vy0, vz0);
+      carPitch = launchPitch;
+
+      activeCar.rootGroup.position.copy(carPos);
+      activeCar.rootGroup.rotation.set(-carPitch, 0, 0);
+
+      sound.playJump(isPerfectRelease);
+      spawnParticles(carPos, isPerfectRelease ? 30 : 16, isPerfectRelease ? 'confetti' : 'sparks');
+      spawnComicPopup(isPerfectRelease ? 'ナイスジャンプ！！🚀' : 'ジャーーンプ！！✨', 'text-yellow-300', 50, 35);
+      showBanner(isPerfectRelease ? '🌟 ナイスジャンプ！10びょう大飛行！ 🌟' : '🚀 だいジャンプ！', 1400);
+    }
+
+    function executeAirBoost() {
+      if (currentState !== STATE.FLIGHT || airBoostCount >= 3) return;
+      airBoostCount++;
+      sound.playBoost();
+
+      const spec = VEHICLES[selectedCarIndex];
+      carVel.y += 4.6;
+      carVel.z += 5.6;
+      gimmickAnimTimer = 1.2;
+
+      const left = 3 - airBoostCount;
+      document.getElementById('boost-label').textContent =
+        left > 0 ? `${spec.boostLabel} (あと${left}かい)` : '✨ ブースト まんたん！';
+
+      const pType = spec.id === 'firetruck' ? 'water' : spec.id === 'garbage' || spec.id === 'keitruck' ? 'confetti' : 'fire';
+      spawnParticles(carPos, 28, pType);
+      spawnComicPopup(spec.boostLabel, 'text-amber-300', 50, 40);
+      showBanner(spec.boostLabel, 1100);
+    }
+
+    // =========================================================================
+    // 10. MAIN PHYSICS & ANIMATION LOOP (Unified Realistic Crash Tumble & Skid!)
+    // =========================================================================
+    let lastTime = performance.now();
+    let animFrameId = null;
+
+    function updateGame(rawDt) {
+      const targetSlowMo = forceSlowMo ? 0.25 : 1.0;
+      if (slowMoFactor < targetSlowMo) {
+        slowMoFactor = Math.min(targetSlowMo, slowMoFactor + rawDt * 0.35);
+      } else if (forceSlowMo) {
+        slowMoFactor = 0.25;
+      }
+
+      const dt = Math.min(rawDt, 0.05) * slowMoFactor;
+      const spec = VEHICLES[selectedCarIndex];
+
+      if (screenShake > 0) {
+        screenShake = Math.max(0, screenShake - rawDt * 3.0);
+      }
+
+      envWindmills.forEach((w) => {
+        w.rotation.z += rawDt * 4.5;
+      });
+      if (activeCar) {
+        const fanSpeedMul = gimmickAnimTimer > 0 ? 2.4 : 1.0;
+        activeCar.spinningFans.forEach((fan) => {
+          fan.rotation.z += rawDt * 24 * fanSpeedMul;
+        });
+
+        if (gimmickAnimTimer > 0) {
+          gimmickAnimTimer = Math.max(0, gimmickAnimTimer - rawDt);
+          if (activeCar.gimmickPart && !activeCar.gimmickPart.detached) {
+            if (spec.id === 'dumptruck') {
+              activeCar.gimmickPart.rotation.x = -Math.sin(gimmickAnimTimer * Math.PI) * 0.55;
+            } else if (spec.id === 'excavator') {
+              activeCar.gimmickPart.rotation.x = 0.45 + Math.sin(gimmickAnimTimer * 10) * 0.45;
+            } else if (spec.id === 'firetruck') {
+              activeCar.gimmickPart.position.z = -0.35 + Math.sin(gimmickAnimTimer * Math.PI) * 1.6;
+            }
+          }
+        }
+      }
+
+      updateParticles(dt);
+
+      if (shadowIndicator && activeCar) {
+        shadowIndicator.position.set(carPos.x, 0.25, carPos.z);
+      }
+
+      // STATE: TITLE
+      if (currentState === STATE.TITLE) {
+        if (activeCar) {
+          activeCar.rootGroup.rotation.set(0, 0, 0);
+          activeCar.wheels.forEach((w) => {
+            w.rotation.x += rawDt * 4.5;
+          });
+          updateCameraFollow(rawDt);
+        }
+        return;
+      }
+
+      // STATE: RUN
+      if (currentState === STATE.RUN) {
+        if (isAccelerating || jumpQueuedPerfect) {
+          carSpeed = Math.min(spec.maxSpeed, carSpeed + spec.accel * rawDt);
+          sound.startEngine();
+          if (Math.random() > 0.65) {
+            spawnParticles(carPos.clone().add(new THREE.Vector3(0, 0.35, -3.2)), 1, 'fire');
+          }
+        } else {
+          if (carPos.z > 15) {
+            carSpeed = Math.min(spec.maxSpeed * 0.68, carSpeed + 8.5 * rawDt);
+          } else {
+            carSpeed = Math.max(0, carSpeed - 12 * rawDt);
+          }
+        }
+
+        sound.updateEngine(carSpeed / spec.maxSpeed, spec.id, rawDt);
+
+        carPos.z = Math.min(RAMP_END_Z, carPos.z + carSpeed * dt);
+        carPos.y = getRampHeight(carPos.z);
+        carPitch = getRampPitchAngle(carPos.z);
+
+        activeCar.rootGroup.position.copy(carPos);
+        activeCar.rootGroup.rotation.set(-carPitch, 0, 0);
+        activeCar.wheels.forEach((w) => {
+          w.rotation.x += carSpeed * dt * 0.85;
+        });
+
+        const pct = Math.min(100, Math.round((carSpeed / spec.maxSpeed) * 100));
+        document.getElementById('speed-bar').style.width = `${pct}%`;
+        const remainMeters = Math.max(0, Math.round(RAMP_END_Z - carPos.z));
+        document.getElementById('speed-readout').textContent = `${Math.round(carSpeed * 2.6)}km/h (あと${remainMeters}m)`;
+
+        if (carPos.z >= TAKEOFF_ZONE_START_Z) {
+          document.getElementById('btn-accelerate-label').textContent = jumpQueuedPerfect
+            ? '🌟 ナイスタイミング！ そのまま ジャンプ！ 🌟'
+            : '✨ いまだ！ てを はなして ジャンプ！ ✨';
+        } else {
+          document.getElementById('btn-accelerate-label').textContent = '🔥 ながおし で ゴー！（ジャンプゾーンで はなす）';
+        }
+
+        if (carPos.z >= RAMP_END_Z) {
+          executeJump(jumpQueuedPerfect);
+        }
+
+        updateCameraFollow(rawDt);
+        return;
+      }
+
+      // STATE: FLIGHT
+      if (currentState === STATE.FLIGHT) {
+        flightElapsed += dt;
+        const flightGravity = 6.8 * spec.gravityMul;
+        carVel.y -= flightGravity * dt;
+
+        if (pitchInput !== 0) {
+          carPitch += pitchInput * spec.pitchSpeed * dt;
+          carVel.z += pitchInput * 11.0 * dt;
+        }
+
+        carPos.addScaledVector(carVel, dt);
+
+        activeCar.rootGroup.position.copy(carPos);
+        activeCar.rootGroup.rotation.set(-carPitch, 0, carRoll);
+        activeCar.wheels.forEach((w) => {
+          w.rotation.x += 10 * dt;
+        });
+
+        const distNow = Math.max(0, Math.round(carPos.z - RAMP_END_Z));
+        document.getElementById('gauge-label').textContent = `✈️ ひこう ${flightElapsed.toFixed(1)}びょう`;
+        document.getElementById('speed-readout').textContent = `${distNow}m / ${selectedCourseDist}m`;
+        document.getElementById('speed-bar').style.width = `${Math.min(100, (distNow / selectedCourseDist) * 100)}%`;
+
+        updateCameraFollow(rawDt);
+
+        if (carPos.y <= activeCar.wheelRadius + 0.15) {
+          carPos.y = activeCar.wheelRadius;
+          activeCar.rootGroup.position.copy(carPos);
+
+          const targetZ = RAMP_END_Z + selectedCourseDist;
+          const distError = Math.abs(carPos.z - targetZ);
+          const pitchDeg = Math.abs((carPitch * 180) / Math.PI) % 360;
+          const normalizedPitchError = Math.min(pitchDeg, Math.abs(360 - pitchDeg));
+
+          if (distError <= 25 && normalizedPitchError <= 28) {
+            currentState = STATE.LANDED;
+            sound.playSuccessFanfare();
+            document.getElementById('hud-controls').classList.add('hidden');
+            carPitch = 0;
+            activeCar.rootGroup.rotation.set(0, 0, 0);
+            spawnParticles(carPos, 85, 'confetti');
+
+            const score = distError <= 6.5 ? 100 : distError <= 15 ? 80 : 60;
+            spawnComicPopup(score === 100 ? '100てん！ピタッ！👑' : 'ちゃくち成功！🎉', 'text-emerald-300', 50, 36);
+            showBanner(score === 100 ? '👑 どまんなか！100てん！！' : '🎉 ちゃくち だいせいこう！！', 2200);
+            setTimeout(() => {
+              showResultCard(true, score, distNow);
+            }, 900);
+          } else {
+            triggerCrash(null);
+          }
+        }
+        return;
+      }
+
+      // STATE: LANDED
+      if (currentState === STATE.LANDED) {
+        updateCameraFollow(rawDt);
+        return;
+      }
+
+      // STATE: CRASHED (Realistic Momentum Tumble, Crumple & Progressive Part Shedding in ALL Modes!)
+      if (currentState === STATE.CRASHED) {
+        crashTimer += rawDt;
+
+        // Progressive front-to-back part tearing for `scatter` mode during high-speed skid
+        if (activeCrashMode === 'scatter') {
+          if (crashTimer > 0.12 && scatterStage === 1) {
+            scatterStage = 2;
+            detachVehicleParts((p) => p.releaseStage === 2, carPos, 1.15, false);
+            spawnParticles(carPos, 25, 'sparks');
+          } else if (crashTimer > 0.26 && scatterStage === 2) {
+            scatterStage = 3;
+            detachVehicleParts((p) => p.releaseStage >= 3, carPos, 1.25, false);
+            spawnParticles(carPos, 25, 'smoke');
+          }
+        }
+
+        // Realistic Nose-Dive Crumple deformation for `squash` mode (compresses length & height, not cartoon pancake!)
+        if (activeCrashMode === 'squash' && squashProgress > 0 && squashProgress < 1) {
+          squashProgress = Math.min(1, squashProgress + rawDt * 4.2);
+          const sy = 1 - squashProgress * 0.34;
+          const sz = 1 - squashProgress * 0.38;
+          const sx = 1 + squashProgress * 0.18;
+          activeCar.squashGroup.scale.set(sx, sy, sz);
+        }
+
+        // Simulate the Car's Core Chassis/Body Tumbling, Bouncing & Skidding Forward in ALL Modes!
+        if (activeCrashMode === 'water' && carPos.y <= 0.9 && carVel.y <= 0) {
+          // Floating & bobbing in the water pool
+          carPos.y = 0.65 + Math.sin(crashTimer * 3.5) * 0.18;
+          carVel.multiplyScalar(0.92);
+          carAngVel.multiplyScalar(0.9);
+          activeCar.rootGroup.position.copy(carPos);
+        } else {
+          carVel.y -= 28 * dt;
+          carPos.addScaledVector(carVel, dt);
+          // Clamp within stadium bounds
+          carPos.x = Math.max(-180, Math.min(180, carPos.x));
+          activeCar.rootGroup.position.copy(carPos);
+
+          activeCar.rootGroup.rotation.x += carAngVel.x * dt;
+          activeCar.rootGroup.rotation.y += carAngVel.y * dt;
+          activeCar.rootGroup.rotation.z += carAngVel.z * dt;
+
+          // Ground Impact & Bounce for the Tumbling Car Body
+          if (carPos.y <= activeCar.wheelRadius * 0.85) {
+            carPos.y = activeCar.wheelRadius * 0.85;
+            if (Math.abs(carVel.y) > 3.2) {
+              const bounceRestitution = activeCrashMode === 'tumble' ? 0.65 : activeCrashMode === 'pinball' ? 0.72 : 0.52;
+              carVel.y = Math.abs(carVel.y) * bounceRestitution;
+              carVel.z *= 0.82;
+              carVel.x *= 0.85;
+              carAngVel.multiplyScalar(0.84);
+              screenShake = Math.min(1.0, screenShake + 0.45);
+
+              sound.playPartBounce(false);
+              spawnParticles(carPos, 18, 'sparks');
+              if (activeCrashMode === 'explode' || Math.random() > 0.5) {
+                spawnParticles(carPos, 8, 'smoke');
+              }
+
+              // Shed next stage of parts on every ground impact!
+              if (tumbleBounceCount < 4) {
+                tumbleBounceCount++;
+                const isCharred = activeCrashMode === 'explode';
+                if (tumbleBounceCount >= 3) {
+                  detachVehicleParts(() => true, carPos, 1.15, isCharred);
+                } else {
+                  detachVehicleParts((p) => p.releaseStage <= tumbleBounceCount, carPos, 1.05, isCharred);
+                }
+              }
+            } else {
+              // Skidding to a halt on the asphalt
+              carVel.y = 0;
+              carVel.x *= 0.88;
+              carVel.z *= 0.91;
+              carAngVel.multiplyScalar(0.82);
+              if (carVel.lengthSq() > 12 && Math.random() > 0.5) {
+                spawnParticles(carPos, 2, 'sparks');
+              }
+            }
+          }
+        }
+
+        // Simulate Every Detached 3D Part with Realistic Momentum, Bouncing & Asphalt Friction
+        activeCar.parts.forEach((p) => {
+          if (!p.detached) return;
+
+          if (activeCrashMode === 'water' && p.mesh.position.y <= 0.65 && p.vel.y <= 0) {
+            p.mesh.position.y = 0.45 + Math.sin(crashTimer * 4 + p.origPos.x * 2) * 0.18;
+            p.vel.multiplyScalar(0.93);
+            p.mesh.rotation.y += dt * 1.4;
+            return;
+          }
+
+          p.vel.y -= 28 * dt;
+          p.mesh.position.addScaledVector(p.vel, dt);
+
+          if (p.alwaysSpin) {
+            p.mesh.rotation.z += rawDt * 25;
+          } else {
+            p.mesh.rotation.x += p.angVel.x * dt;
+            p.mesh.rotation.y += p.angVel.y * dt;
+            p.mesh.rotation.z += p.angVel.z * dt;
+          }
+
+          if (p.mesh.position.y < p.radius) {
+            p.mesh.position.y = p.radius;
+            if (Math.abs(p.vel.y) > 2.4) {
+              p.vel.y = Math.abs(p.vel.y) * p.restitution;
+              sound.playPartBounce(p.partType === 'wheel');
+              if (p.partType !== 'wheel' && p.partType !== 'cargo' && Math.random() > 0.65) {
+                spawnParticles(p.mesh.position, 2, 'sparks');
+              }
+            } else {
+              p.vel.y = 0;
+            }
+
+            if (p.rollOnGround) {
+              p.vel.x *= 0.985;
+              p.vel.z *= 0.986;
+              p.mesh.rotation.x += p.vel.z * dt * 1.35;
+            } else {
+              p.vel.x *= 0.85;
+              p.vel.z *= 0.86;
+              p.angVel.multiplyScalar(0.84);
+            }
+          }
+
+          if (p.partType === 'wheel') {
+            const dFromCar = p.mesh.position.distanceTo(carPos);
+            if (dFromCar > maxWheelFlyDist) maxWheelFlyDist = dFromCar;
+          }
+        });
+
+        updateCameraFollow(rawDt);
+      }
+    }
+
+    function animate(now) {
+      animFrameId = requestAnimationFrame(animate);
+      const rawDt = (now - lastTime) / 1000;
+      lastTime = now;
+
+      if (currentState !== STATE.PAUSED) {
+        updateGame(rawDt);
+      }
+      renderer.render(scene, camera);
+    }
+
+    // =========================================================================
+    // 11. UI INITIALIZATION & EVENT LISTENERS
+    // =========================================================================
+    function renderVehicleSelectionGrid() {
+      const grid = document.getElementById('car-grid');
+      grid.innerHTML = '';
+      VEHICLES.forEach((v, idx) => {
+        const isSelected = idx === selectedCarIndex;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = `toy-btn p-1.5 rounded-2xl flex flex-col items-center justify-center text-center border-2 ${
+          isSelected
+            ? 'bg-gradient-to-b from-amber-400 to-orange-500 text-slate-950 border-white shadow-lg scale-105'
+            : 'bg-slate-800/90 hover:bg-slate-700 text-white border-white/20'
+        }`;
+        btn.innerHTML = `
+          <div class="text-xl sm:text-2xl">${v.icon}</div>
+          <div class="font-black text-[10px] sm:text-xs leading-tight">${v.name}</div>
+        `;
+        btn.addEventListener('click', () => {
+          selectedCarIndex = idx;
+          sound.playTone(540, 0.12, 'triangle', 0.12, 760);
+          renderVehicleSelectionGrid();
+          spawnSelectedVehicle();
+        });
+        grid.appendChild(btn);
+      });
+    }
+
+    function setupEventListeners() {
+      document.getElementById('cam-preset-back').addEventListener('click', () => setCameraPreset('back'));
+      document.getElementById('cam-preset-diag').addEventListener('click', () => setCameraPreset('diag'));
+      document.getElementById('cam-preset-side').addEventListener('click', () => setCameraPreset('side'));
+      document.getElementById('cam-preset-front').addEventListener('click', () => setCameraPreset('front'));
+      document.getElementById('cam-preset-closeup').addEventListener('click', () => setCameraPreset('closeup'));
+      document.getElementById('cam-zoom-out').addEventListener('click', () => {
+        camDist = Math.min(28.0, camDist + 3.2);
+      });
+
+      document.getElementById('cam-rot-left').addEventListener('click', () => { camYaw -= 0.35; });
+      document.getElementById('cam-rot-right').addEventListener('click', () => { camYaw += 0.35; });
+      document.getElementById('cam-rot-up').addEventListener('click', () => {
+        camElevation = Math.min(1.15, camElevation + 0.14);
+      });
+      document.getElementById('cam-rot-down').addEventListener('click', () => {
+        camElevation = Math.max(0.08, camElevation - 0.14);
+      });
+
+      // Phase 3 Crash Camera Target Switcher (Follow Car Body vs Rolling Tire vs Spinning Fan!)
+      document.querySelectorAll('.focus-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          crashCameraFocus = btn.getAttribute('data-focus');
+          sound.playTone(620, 0.1, 'sine', 0.12, 880);
+          document.querySelectorAll('.focus-btn').forEach((b) => {
+            b.className = 'focus-btn toy-btn bg-slate-800 text-white font-black px-2 py-0.5 rounded-full';
+          });
+          btn.className = 'focus-btn toy-btn bg-amber-400 text-slate-950 font-black px-2 py-0.5 rounded-full';
+        });
+      });
+
+      document.getElementById('btn-slowmo-toggle').addEventListener('click', () => {
+        forceSlowMo = !forceSlowMo;
+        slowMoFactor = forceSlowMo ? 0.25 : 1.0;
+        const btn = document.getElementById('btn-slowmo-toggle');
+        btn.textContent = forceSlowMo ? '🐢 スロー: ずっとON' : '🐢 スロー: じどう';
+        btn.className = forceSlowMo
+          ? 'toy-btn bg-amber-400 border-2 border-white text-slate-950 font-black px-2.5 py-1.5 rounded-2xl text-xs sm:text-sm shadow-lg'
+          : 'toy-btn bg-purple-700 hover:bg-purple-600 border-2 border-purple-300 text-white font-black px-2.5 py-1.5 rounded-2xl text-xs sm:text-sm shadow-lg';
+      });
+
+      renderer.domElement.addEventListener('pointerdown', (e) => {
+        isDraggingCamera = true;
+        lastPointerX = e.clientX;
+        lastPointerY = e.clientY;
+      });
+      window.addEventListener('pointermove', (e) => {
+        if (isDraggingCamera) {
+          const dx = e.clientX - lastPointerX;
+          const dy = e.clientY - lastPointerY;
+          lastPointerX = e.clientX;
+          lastPointerY = e.clientY;
+          camYaw += dx * 0.0085;
+          camElevation = Math.max(0.06, Math.min(1.2, camElevation + dy * 0.006));
+        }
+      });
+      window.addEventListener('pointerup', () => {
+        isDraggingCamera = false;
+      });
+      renderer.domElement.addEventListener('wheel', (e) => {
+        camDist = Math.max(7.5, Math.min(30.0, camDist + e.deltaY * 0.012));
+      }, { passive: true });
+
+      document.querySelectorAll('.dist-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          selectedCourseDist = Number(btn.getAttribute('data-dist'));
+          sound.playTone(440, 0.12, 'sine', 0.12, 660);
+          document.querySelectorAll('.dist-btn').forEach((b) => {
+            b.classList.remove('border-4', 'border-yellow-300', 'bg-amber-500', 'text-slate-950');
+            b.classList.add('border-2', 'border-white/30');
+          });
+          btn.classList.add('border-4', 'border-yellow-300');
+          updateTargetZonePosition(selectedCourseDist);
+          spawnSelectedVehicle();
+        });
+      });
+
+      document.getElementById('btn-start-game').addEventListener('click', startGameRun);
+      document.getElementById('btn-retry').addEventListener('click', startGameRun);
+      document.getElementById('btn-change-car').addEventListener('click', () => {
+        sound.stopEngine();
+        currentState = STATE.TITLE;
+        document.getElementById('screen-result').classList.add('hidden');
+        document.getElementById('crash-mode-badge').classList.add('hidden');
+        document.getElementById('crash-focus-bar').classList.add('hidden');
+        document.getElementById('hud-controls').classList.add('hidden');
+        document.getElementById('screen-title').classList.remove('hidden');
+        spawnSelectedVehicle();
+      });
+
+      document.getElementById('btn-sound-toggle').addEventListener('click', () => {
+        const on = sound.toggle();
+        document.getElementById('btn-sound-toggle').textContent = on ? '🔊 おと ON' : '🔇 おと OFF';
+      });
+
+      document.getElementById('btn-pause').addEventListener('click', () => {
+        if (currentState === STATE.PAUSED) {
+          currentState = prevStateBeforePause;
+          document.getElementById('screen-pause').classList.add('hidden');
+        } else {
+          prevStateBeforePause = currentState;
+          currentState = STATE.PAUSED;
+          sound.stopEngine();
+          document.getElementById('screen-pause').classList.remove('hidden');
+        }
+      });
+      document.getElementById('btn-resume').addEventListener('click', () => {
+        currentState = prevStateBeforePause;
+        document.getElementById('screen-pause').classList.add('hidden');
+      });
+      document.getElementById('btn-pause-retry').addEventListener('click', startGameRun);
+      document.getElementById('btn-pause-title').addEventListener('click', () => {
+        currentState = STATE.TITLE;
+        document.getElementById('screen-pause').classList.add('hidden');
+        document.getElementById('screen-result').classList.add('hidden');
+        document.getElementById('crash-focus-bar').classList.add('hidden');
+        document.getElementById('hud-controls').classList.add('hidden');
+        document.getElementById('screen-title').classList.remove('hidden');
+        spawnSelectedVehicle();
+      });
+
+      document.getElementById('btn-instant-crash').addEventListener('click', () => {
+        document.getElementById('screen-crash-picker').classList.toggle('hidden');
+      });
+      document.getElementById('btn-close-crash-picker').addEventListener('click', () => {
+        document.getElementById('screen-crash-picker').classList.add('hidden');
+      });
+      document.querySelectorAll('.crash-pick-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const mode = btn.getAttribute('data-crash');
+          document.getElementById('screen-crash-picker').classList.add('hidden');
+          document.getElementById('screen-title').classList.add('hidden');
+          document.getElementById('screen-result').classList.add('hidden');
+
+          spawnSelectedVehicle();
+          const targetZ = RAMP_END_Z + selectedCourseDist;
+          carPos.set(0, activeCar.wheelRadius + 1.2, targetZ);
+          carVel.set(0, -18, 42);
+          activeCar.rootGroup.position.copy(carPos);
+          activeCar.rootGroup.rotation.set(0, 0, 0);
+          triggerCrash(mode);
+        });
+      });
+
+      const accelBtn = document.getElementById('btn-accelerate');
+      const startHold = (e) => {
+        e.preventDefault();
+        if (currentState === STATE.RUN) {
+          isAccelerating = true;
+          sound.startEngine();
+        }
+      };
+      const endHold = (e) => {
+        e.preventDefault();
+        if (currentState === STATE.RUN && isAccelerating) {
+          isAccelerating = false;
+          if (carPos.z >= TAKEOFF_ZONE_START_Z - 35) {
+            jumpQueuedPerfect = true;
+            showBanner('🌟 ナイスタイミング！ 先端から大ジャンプ！ 🌟', 1200);
+          }
+        }
+      };
+      accelBtn.addEventListener('pointerdown', startHold);
+      window.addEventListener('pointerup', endHold);
+
+      const pitchDownBtn = document.getElementById('btn-pitch-down');
+      const pitchUpBtn = document.getElementById('btn-pitch-up');
+      pitchDownBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); pitchInput = 1; });
+      pitchDownBtn.addEventListener('pointerup', () => { pitchInput = 0; });
+      pitchDownBtn.addEventListener('pointerleave', () => { pitchInput = 0; });
+
+      pitchUpBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); pitchInput = -1; });
+      pitchUpBtn.addEventListener('pointerup', () => { pitchInput = 0; });
+      pitchUpBtn.addEventListener('pointerleave', () => { pitchInput = 0; });
+
+      document.getElementById('btn-air-boost').addEventListener('click', executeAirBoost);
+
+      window.addEventListener('keydown', (e) => {
+        if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') {
+          if (currentState === STATE.RUN) {
+            isAccelerating = true;
+            sound.startEngine();
+          } else if (currentState === STATE.FLIGHT && e.code === 'Space') {
+            executeAirBoost();
+          }
+        }
+        if (e.code === 'ArrowLeft' || e.code === 'KeyA') pitchInput = 1;
+        if (e.code === 'ArrowRight' || e.code === 'KeyD') pitchInput = -1;
+      });
+      window.addEventListener('keyup', (e) => {
+        if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') {
+          if (currentState === STATE.RUN && isAccelerating) {
+            isAccelerating = false;
+            if (carPos.z >= TAKEOFF_ZONE_START_Z - 35) {
+              jumpQueuedPerfect = true;
+            }
+          }
+        }
+        if (e.code === 'ArrowLeft' || e.code === 'KeyA' || e.code === 'ArrowRight' || e.code === 'KeyD') {
+          pitchInput = 0;
+        }
+      });
+
+      window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+    }
+
+    window.addEventListener('load', () => {
+      updateHighScoreDisplay(0);
+      buildSkiJumpWorld();
+      renderVehicleSelectionGrid();
+      spawnSelectedVehicle();
+      setupEventListeners();
+      setCameraPreset('diag');
+      if (animFrameId) cancelAnimationFrame(animFrameId);
+      lastTime = performance.now();
+      animFrameId = requestAnimationFrame(animate);
+    });
+  </script>
+</body>
+</html>
